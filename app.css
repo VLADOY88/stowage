@@ -279,3 +279,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   .poly-bar .btn { min-height: 32px; }
   .view-deck5:has(.poly-bar:not(:empty)) #d5 { max-height: calc(100svh - 236px); }
 }
+.chips-lbl { font-size: 13px; font-weight: 700; color: var(--muted); align-self: center; margin-right: 2px; }
+.chip.all { --c: var(--surface2); --t: var(--ink); border-color: var(--line); }
+.erase-chips .chip.on { outline-color: var(--danger); }
+#dk .dshape { vector-effect: non-scaling-stroke; }
+.view-hold .seg.wide button { padding: 0 4px; font-size: 14px; }

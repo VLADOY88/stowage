@@ -13,6 +13,7 @@ const DECKPIC = {
   6: { w: 1395, h: 295, cuts: [361, 759, 1062] }, 4: { w: 941, h: 296, cuts: [400, 703] }, 3: { w: 856, h: 295, cuts: [399, 703] },
   2: { w: 703, h: 295, cuts: [399] }, 1: { w: 700, h: 296, cuts: [398] }
 };
+function dkClampToHold(z, p) { return [clamp(p[0], z.x0, z.x1), clamp(p[1], 0, DECKPIC[UI.deck].h)]; }
 function deckHolds(d) { const g = DECKPIC[d], xs = [0, ...g.cuts, g.w]; return holdsFor(d).map((h, i) => ({ h, x0: xs[i], x1: xs[i + 1] })); }
 function upGrid(a) { if (!a || a.length !== 128) return a; const o = new Array(GC * GR).fill(null); for (let r = 0; r < GR; r++) for (let c = 0; c < GC; c++) o[r * GC + c] = a[(r >> 1) * 16 + (c >> 1)]; return o; }
 const D5W = 1000, D5H = 300;           // deck 5 drawing space (matches deck5.png, 1611 x 484)
@@ -147,9 +148,10 @@ const loadPorts = () => ship().ports.filter(p => p.type !== 'D');
 const rotation = sh => (sh.voyage ? sh.voyage + '=' : '') + sh.ports.map(p => p.code).join('=>');
 function getHold(d, h, create) {
   const sh = ship(), k = d + '-' + h; let o = sh.holds[k];
-  if (!o && create) o = sh.holds[k] = { cells: new Array(GC * GR).fill(null), pols: new Array(GC * GR).fill(null), entries: [], arrows: [], evs: [] };
+  if (!o && create) o = sh.holds[k] = { cells: new Array(GC * GR).fill(null), pols: new Array(GC * GR).fill(null), entries: [], arrows: [], evs: [], shapes: [] };
   if (o && !o.arrows) o.arrows = [];
   if (o && !o.evs) o.evs = [];
+  if (o && !o.shapes) o.shapes = [];
   if (o && o.cells.length === 128) { o.cells = upGrid(o.cells); if (o.pols) o.pols = upGrid(o.pols); }
   if (o && !o.pols) o.pols = holdPols(o);
   return o;
@@ -246,7 +248,7 @@ function uniqueCode(base, exceptId) {
 function nextColor() { const used = new Set(ship().ports.map(p => p.color)); const f = PALETTE.find(c => !used.has(c[1])); return f ? f[1] : PALETTE[0][1]; }
 
 /* ---------- UI state ---------- */
-const UI = { view: 'home', tab: 'ship', deck: 7, hold: 3, mode: 'paint', pod: null, undo: [], dv: { vb: null, deck: null, all: false }, d5undo: [], d5: { tool: 'select', sel: null, zoom: null }, pdf: null, openPort: null };
+const UI = { erasePod: null, view: 'home', tab: 'ship', deck: 7, hold: 3, mode: 'paint', pod: null, undo: [], dv: { vb: null, deck: null, all: false }, d5undo: [], d5: { tool: 'select', sel: null, zoom: null }, pdf: null, openPort: null };
 const app = document.getElementById('app');
 function render() {
   const y = window.scrollY;
@@ -421,8 +423,9 @@ function drawShip(ctx, W, H, sh, T, pol) {
         const ho = sh.holds[d + '-' + h];
         if (ho) {
           const cw = L.cw / GC, ch = L.rh / GR, pl = holdPols(ho);
-          const show = !pol || holdHas(d, h) || pl.some(q => q === pol);
+          const show = !pol || holdHas(d, h) || pl.some(q => q === pol) || (ho.shapes || []).some(q => q.pol === pol);
           ho.cells.forEach((v, n) => { if (!v || (pol && pl[n] !== pol)) return; const p = sh.ports.find(q => q.id === v); if (!p) return; ctx.fillStyle = p.color || '#ccc'; ctx.fillRect(x + (n % GC) * cw, y + Math.floor(n / GC) * ch, cw + 0.6, ch + 0.6); });
+          (ho.shapes || []).filter(q => !pol || q.pol === pol).forEach(q => { const p = sh.ports.find(o => o.id === q.pod); ctx.beginPath(); q.pts.forEach((pt, i) => i ? ctx.lineTo(x + pt[0] * L.cw, y + pt[1] * L.rh) : ctx.moveTo(x + pt[0] * L.cw, y + pt[1] * L.rh)); ctx.closePath(); ctx.fillStyle = (p && p.color) || '#ccc'; ctx.fill(); ctx.lineWidth = 0.6; ctx.strokeStyle = '#1d2b3f'; ctx.stroke(); });
           if (show) (ho.arrows || []).forEach(r => drawArrow(ctx, x + r[0] * L.cw, y + r[1] * L.rh, x + r[2] * L.cw, y + r[3] * L.rh, Math.max(1.2, L.rh * 0.05)));
           (ho.evs || []).filter(v => !pol || v[2] === pol || (v[2] == null && show)).forEach(v => drawBolt(ctx, x + v[0] * L.cw, y + v[1] * L.rh, Math.max(7, L.rh * 0.32)));
         }
@@ -606,6 +609,10 @@ function bottomNav() {
     <div class="brow"><span class="blbl">Deck</span><div class="dscroll">${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</div></div>
   </nav>`;
 }
+function eraseChips() {
+  const list = dischPorts();
+  return `<div class="chips erase-chips"><span class="chips-lbl">Discharge</span><button class="chip all ${!UI.erasePod ? 'on' : ''}" data-act="pickErase" data-v="">All ports</button>${list.map(p => `<button class="chip ${UI.erasePod === p.id ? 'on' : ''}" data-act="pickErase" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)} only</button>`).join('')}</div>`;
+}
 function renderHold() {
   const sh = ship(), d = UI.deck, h = UI.hold, ho = getHold(d, h, true);
   if (!UI.pod || !P(UI.pod) || P(UI.pod).type === 'L') UI.pod = dischPorts()[0]?.id || null;
@@ -620,13 +627,15 @@ function renderHold() {
     <div class="seg wide">
       <button data-act="mode" data-v="paint" class="${UI.mode === 'paint' ? 'on' : ''}">Load</button>
       <button data-act="mode" data-v="erase" class="${UI.mode === 'erase' ? 'on erase' : ''}">Discharge</button>
+      <button data-act="mode" data-v="draw" class="${UI.mode === 'draw' ? 'on' : ''}">Draw</button>
       <button data-act="mode" data-v="arrow" class="${UI.mode === 'arrow' ? 'on' : ''}">Arrow</button>
       <button data-act="mode" data-v="ev" class="${UI.mode === 'ev' ? 'on' : ''}">EV</button>
     </div>
-    ${UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
+    ${UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
     <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div><span class="muted">Two fingers: zoom and move</span></div>
+    ${UI.mode === 'draw' ? `<div class="poly-bar" id="dkPolyBar"></div>` : ''}
     <div class="dk-wrap"><svg id="dk" xmlns="http://www.w3.org/2000/svg"></svg></div>
-    <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button><button class="btn sm" data-act="clearHold">Clear Hold ${h}</button>`}</div>
+    <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : UI.mode === 'erase' ? `<button class="btn sm danger" data-act="clearHold">${UI.erasePod ? `Discharge all ${esc(code(UI.erasePod))} from Hold ${h}` : `Discharge all of Hold ${h}`}</button>` : UI.mode === 'draw' ? '' : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button>`}</div>
     <div class="sec-h"><h2>Units in Hold ${h}</h2><b id="holdTot">${fmt(ho.entries.reduce((a, e) => a + num(e.units), 0))}</b></div>
     <div id="entries">${entriesHtml(ho)}</div>
     <button class="btn" data-act="addEntry">${I.plus} Add units</button>
@@ -667,9 +676,10 @@ function dkClamp(v) {
 function dkApply(v) { UI.dv.vb = v; UI.dv.deck = UI.deck; const svg = $('#dk'); if (svg) svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`); }
 function dkUpp() { const svg = $('#dk'), v = dkVB(); return svg && svg.clientWidth ? Math.max(v.w / svg.clientWidth, v.h / (svg.clientHeight || 1)) : 1; }
 function dkCellsSvg(d) {
-  const g = DECKPIC[d]; let out = '';
+  const g = DECKPIC[d]; let out = '', top = '';
   deckHolds(d).forEach(z => {
     const o = ship().holds[d + '-' + z.h]; if (!o) return;
+    (o.shapes || []).forEach(q => { top += `<polygon points="${q.pts.map(p => `${(z.x0 + p[0] * (z.x1 - z.x0)).toFixed(2)},${(p[1] * g.h).toFixed(2)}`).join(' ')}" fill="${colorOf(q.pod)}" stroke="#1d2b3f" stroke-width="1.2" class="dshape"/>`; });
     const cw = (z.x1 - z.x0) / GC, ch = g.h / GR;
     for (let r = 0; r < GR; r++) {
       let c = 0;
@@ -681,7 +691,7 @@ function dkCellsSvg(d) {
       }
     }
   });
-  return out;
+  return out + top;
 }
 function arrowSvg(x1, y1, x2, y2, u) {
   const a = Math.atan2(y2 - y1, x2 - x1), hl = 13 * u, bx = x2 - Math.cos(a) * hl * 0.7, by = y2 - Math.sin(a) * hl * 0.7;
@@ -708,8 +718,9 @@ function drawHoldGrid() {
     <g id="dkMarks">${dkMarksSvg(d)}</g>
     ${UI.evTmp ? `<g opacity=".55">${boltSvg(UI.evTmp[0], UI.evTmp[1], 24 * dkUpp())}</g>` : ''}
     <g id="dkTmp"></g>`;
+  if (UI.mode === 'draw') dkPolyDraw();
 }
-function pushUndo() { const ho = getHold(UI.deck, UI.hold, true); UI.undo.push({ cells: ho.cells.slice(), pols: ho.pols.slice(), arrows: ho.arrows.map(a => a.slice()), evs: ho.evs.map(a => a.slice()) }); if (UI.undo.length > 40) UI.undo.shift(); }
+function pushUndo() { const ho = getHold(UI.deck, UI.hold, true); UI.undo.push({ cells: ho.cells.slice(), pols: ho.pols.slice(), arrows: ho.arrows.map(a => a.slice()), evs: ho.evs.map(a => a.slice()), shapes: JSON.parse(JSON.stringify(ho.shapes || [])) }); if (UI.undo.length > 40) UI.undo.shift(); }
 function bindDeck() {
   const svg = $('#dk'); if (!svg) return;
   const d = UI.deck, g = DECKPIC[d], sh = ship();
@@ -719,10 +730,11 @@ function bindDeck() {
   const frac = (z, p) => [clamp((p[0] - z.x0) / (z.x1 - z.x0), 0, 1), clamp(p[1] / g.h, 0, 1)];
   const cellOf = (z, p) => ({ x: clamp(Math.floor((p[0] - z.x0) / (z.x1 - z.x0) * GC), 0, GC - 1), y: clamp(Math.floor(p[1] / g.h * GR), 0, GR - 1) });
   const line = (a, b) => { const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) || 1, o = []; for (let i = 0; i <= n; i++) o.push({ x: Math.round(a.x + (b.x - a.x) * i / n), y: Math.round(a.y + (b.y - a.y) * i / n) }); return o; };
+  const eraseShapesAt = (ho, z, p) => { const f = [(p[0] - z.x0) / (z.x1 - z.x0), p[1] / g.h]; ho.shapes = (ho.shapes || []).filter(q => !(inPoly(f, q.pts) && (!UI.erasePod || q.pod === UI.erasePod))); };
   const switchHold = z => { if (z.h !== UI.hold) { UI.hold = z.h; UI.undo = []; return true; } return false; };
   const redrawCells = () => { const c = svg.querySelector('g[opacity]'); if (c) c.innerHTML = dkCellsSvg(d); };
   const cancel = () => {
-    if (act && (act.k === 'paint') && act.snap) { const ho = getHold(d, act.z.h, true); ho.cells = act.snap.cells; ho.pols = act.snap.pols; UI.undo.pop(); }
+    if (act && (act.k === 'paint') && act.snap) { const ho = getHold(d, act.z.h, true); ho.cells = act.snap.cells; ho.pols = act.snap.pols; ho.shapes = act.snap.shapes || []; UI.undo.pop(); }
     if (act && act.k === 'evmove' && act.moved) { UI.undo.pop(); }
     act = null; UI.evTmp = null; drawHoldGrid();
   };
@@ -737,11 +749,16 @@ function bindDeck() {
     if (touches.size > 2 || blocked) return;
     const p = pt(e.clientX, e.clientY), z = holdAt(p[0]);
     const switched = switchHold(z), ho = getHold(d, z.h, true);
+    if (UI.mode === 'draw') {
+      if (!UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
+      act = { k: 'draw', p, z: UI.dkPoly ? deckHolds(d).find(q => q.h === UI.dkPoly.h) : z, switched: false };
+      dkPolyDraw(act.p = dkClampToHold(act.z, p)); return;
+    }
     if (UI.mode === 'paint' || UI.mode === 'erase') {
       if (UI.mode === 'paint' && !UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
       pushUndo(); const c = cellOf(z, p);
-      act = { k: 'paint', z, last: c, switched, snap: { cells: UI.undo.at(-1).cells, pols: UI.undo.at(-1).pols } };
-      paintCell(ho, c); redrawCells();
+      act = { k: 'paint', z, last: c, switched, snap: { cells: UI.undo.at(-1).cells, pols: UI.undo.at(-1).pols, shapes: UI.undo.at(-1).shapes } };
+      paintCell(ho, c); if (UI.mode === 'erase') eraseShapesAt(ho, z, p); redrawCells();
     } else if (UI.mode === 'arrow') act = { k: 'arrow', z, a: p, switched };
     else if (UI.mode === 'ev') {
       const u = dkUpp(); let best = -1, bd = 22 * u;
@@ -760,7 +777,8 @@ function bindDeck() {
       return;
     }
     if (!act || blocked) return; const p = pt(e.clientX, e.clientY);
-    if (act.k === 'paint') { const ho = getHold(d, act.z.h, true), c = cellOf(act.z, p); line(act.last, c).forEach(q => paintCell(ho, q)); act.last = c; redrawCells(); }
+    if (act.k === 'paint') { const ho = getHold(d, act.z.h, true), c = cellOf(act.z, p); line(act.last, c).forEach(q => paintCell(ho, q)); if (UI.mode === 'erase') eraseShapesAt(ho, act.z, p); act.last = c; redrawCells(); }
+    else if (act.k === 'draw') { act.p = dkClampToHold(act.z, p); dkPolyDraw(act.p); }
     else if (act.k === 'arrow') { act.b = p; $('#dkTmp').innerHTML = `<g opacity=".6">${arrowSvg(act.a[0], act.a[1], p[0], p[1], dkUpp())}</g>`; }
     else if (act.k === 'evmove') {
       if (!act.moved && Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 6) { act.moved = true; pushUndo(); }
@@ -776,6 +794,14 @@ function bindDeck() {
     const ho = getHold(d, A.z.h, true);
     const finish = changed => { save(); if (A.switched || changed) rerender(); };
     if (A.k === 'paint') { if (A.switched) rerender(); afterStroke(UI.mode); return; }
+    if (A.k === 'draw') {
+      const p = A.p, u = dkUpp();
+      if (!UI.dkPoly) UI.dkPoly = { h: A.z.h, pts: [] };
+      const P = UI.dkPoly.pts;
+      if (P.length >= 3 && Math.hypot(p[0] - P[0][0], p[1] - P[0][1]) < 16 * u) { dkPolyFinish(); return; }
+      if (!P.length || Math.hypot(p[0] - P.at(-1)[0], p[1] - P.at(-1)[1]) > 3 * u) P.push(p);
+      dkPolyDraw(); return;
+    }
     if (A.k === 'arrow') {
       const b = A.b || A.a, lenPx = Math.hypot(b[0] - A.a[0], b[1] - A.a[1]) / dkUpp();
       if (lenPx < 14) {
@@ -805,9 +831,30 @@ function bindDeck() {
     };
   }
 }
-function paintCell(ho, c) { const i = c.y * GC + c.x; ho.cells[i] = UI.mode === 'paint' ? UI.pod : null; ho.pols[i] = UI.mode === 'paint' ? (ship().activePol || null) : null; }
+function inPoly(p, pts) { let ins = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) ins = !ins; } return ins; }
+const holdPresent = ho => new Set([...ho.cells.filter(Boolean), ...(ho.shapes || []).map(q => q.pod)]);
+function dkPolyDraw(cursor) {
+  const tmp = $('#dkTmp'), bar = $('#dkPolyBar'), P = UI.dkPoly, n = P ? P.pts.length : 0;
+  if (bar) bar.innerHTML = `<span><b>${n}</b> corner${n === 1 ? '' : 's'}${P ? ` in Hold ${P.h}` : ''}</span>
+    <button class="btn sm" data-act="dkpoly" data-v="undo" ${n ? '' : 'disabled'}>Undo corner</button>
+    <button class="btn sm" data-act="dkpoly" data-v="cancel" ${n ? '' : 'disabled'}>Cancel</button>
+    <button class="btn sm primary" data-act="dkpoly" data-v="finish" ${n < 3 ? 'disabled' : ''}>Finish shape</button>`;
+  if (!tmp) return; if (!n) { tmp.innerHTML = ''; return; }
+  const u = dkUpp(), pts = cursor ? [...P.pts, cursor] : P.pts, c = colorOf(UI.pod);
+  tmp.innerHTML = `${pts.length > 2 ? `<polygon points="${pts.map(q => q.join(',')).join(' ')}" fill="${c}" fill-opacity=".5" stroke="none"/>` : ''}
+    <polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" class="selbox"/>
+    ${P.pts.map((q, i) => `<circle cx="${q[0]}" cy="${q[1]}" r="${(i === 0 ? 7 : 4.5) * u}" fill="${i === 0 ? 'var(--accent)' : '#0e2036'}" stroke="#fff" stroke-width="1.5"/>`).join('')}`;
+}
+function dkPolyFinish() {
+  const P = UI.dkPoly; if (!P || P.pts.length < 3) return;
+  const d = UI.deck, g = DECKPIC[d], z = deckHolds(d).find(q => q.h === P.h);
+  UI.hold = P.h; pushUndo(); const ho = getHold(d, P.h, true);
+  ho.shapes.push({ id: uid(), pod: UI.pod, pol: ship().activePol || null, pts: P.pts.map(q => [clamp((q[0] - z.x0) / (z.x1 - z.x0), 0, 1), clamp(q[1] / g.h, 0, 1)]) });
+  UI.dkPoly = null; save(); rerender(); afterStroke('paint');
+}
+function paintCell(ho, c) { const i = c.y * GC + c.x; if (UI.mode === 'erase' && UI.erasePod && ho.cells[i] !== UI.erasePod) return; ho.cells[i] = UI.mode === 'paint' ? UI.pod : null; ho.pols[i] = UI.mode === 'paint' ? (ship().activePol || null) : null; }
 function afterStroke(mode) {
-  const sh = ship(), ho = getHold(UI.deck, UI.hold, true), present = new Set(ho.cells.filter(Boolean));
+  const sh = ship(), ho = getHold(UI.deck, UI.hold, true), present = holdPresent(ho);
   save(); refreshHoldMeta();
   if (mode === 'paint') {
     let added = false;
@@ -848,12 +895,15 @@ function renderDeck5() {
   drawD5(); bindD5();
 }
 function d5ToolsHtml() {
+  if (UI.d5.tool === 'erase') return d5ToolsBase() + eraseChips() + (UI.erasePod ? `<button class="btn sm danger" data-act="d5EraseAll">Discharge all ${esc(code(UI.erasePod))} from Deck 5</button>` : '');
+  return d5ToolsBase() + `<div class="chips">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('')}</div>`;
+}
+function d5ToolsBase() {
   return `<div class="seg zoom"><button data-act="d5zoom" data-v="out" aria-label="Zoom out">−</button><button data-act="d5zoom" data-v="in" aria-label="Zoom in">+</button><button data-act="d5zoom" data-v="fit">Fit</button></div>
-  <div class="seg">${D5TOOLS.map(([k, n]) => `<button data-act="d5tool" data-v="${k}" class="${UI.d5.tool === k ? 'on' : ''}">${n}</button>`).join('')}</div>
-  <div class="chips">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('')}</div>`;
+  <div class="seg">${D5TOOLS.map(([k, n]) => `<button data-act="d5tool" data-v="${k}" class="${UI.d5.tool === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
 }
 function d5Hint() {
-  return ({ select: 'Pinch with two fingers to zoom, drag the empty deck to pan. Tap an item to edit, drag to move, drag the round handle to resize.', rect: 'Drag on the deck to draw a rectangle for units.', free: 'Tap each corner of the shape. Straight lines join the corners. Tap the first corner or Finish to close it.', erase: 'Tap an item to discharge it (remove it from Deck 5). Undo brings it back.', mafi: 'Tap on the deck where the MAFI stands.', pkg: 'Tap on the deck where the package stands. Resize it with the round handle.', ev: 'Tap the exact spot of each electric vehicle. Use Select to move or delete.' })[UI.d5.tool];
+  return ({ select: 'Pinch with two fingers to zoom, drag the empty deck to pan. Tap an item to edit, drag to move, drag the round handle to resize.', rect: 'Drag on the deck to draw a rectangle for units.', free: 'Tap each corner of the shape. Straight lines join the corners. Tap the first corner or Finish to close it.', erase: 'Tap an item to discharge it. Choose one port to discharge only that port\'s cargo. Undo brings it back.', mafi: 'Tap on the deck where the MAFI stands.', pkg: 'Tap on the deck where the package stands. Resize it with the round handle.', ev: 'Tap the exact spot of each electric vehicle. Use Select to move or delete.' })[UI.d5.tool];
 }
 function labelLines(s) {
   const pp = `${s.pod ? code(s.pod) : '?'}/${s.pol ? code(s.pol) : '?'}`;
@@ -1030,6 +1080,7 @@ function bindD5() {
     if (e.type === 'pointercancel') { const t = $('#tmp'); if (t) t.innerHTML = ''; return; }
     if (d.k === 'pan') { if (!d.moved) { UI.d5.sel = null; drawD5(); } }
     else if (d.k === 'erase' && !d.moved) {
+      if (UI.erasePod && d.s.pod !== UI.erasePod) { toast(`This is ${d.s.type === 'ev' ? 'an EV mark' : code(d.s.pod) + ' cargo'}. Only ${code(UI.erasePod)} is selected for discharge.`); return; }
       const s = d.s, what = s.type === 'ev' ? 'this EV mark' : s.type === 'mafi' ? `${code(s.pod)}/${code(s.pol)} ${s.mafis.length > 1 ? 'MAFI stack (' + s.mafis.length + ')' : ('MAFI ' + (s.mafis[0].no || '')).trim()}` : s.type === 'pkg' ? `${code(s.pod)}/${code(s.pol)} package (${fmt(num(s.pkgs))} PKGs)` : `${code(s.pod)}/${code(s.pol)}${num(s.units) ? ' ' + fmt(num(s.units)) + ' units' : ''}${s.label ? ' ' + s.label : ''}`;
       UI.d5.sel = s.id; drawD5();
       confirmBox(`Discharge ${what}?`, 'Discharge').then(ok => { if (ok) { pushD5(); sh.deck5.shapes = sh.deck5.shapes.filter(x => x.id !== s.id); toast('Discharged. Undo brings it back.'); save(); } UI.d5.sel = null; drawD5(); });
@@ -1327,25 +1378,36 @@ document.addEventListener('click', async e => {
       const ok = await confirmBox(used ? `${p.code} is used by ${used} cargo record(s). Delete the port and its cargo?` : `Delete ${p.code} (${p.name})?`);
       if (!ok) break;
       sh.ports = sh.ports.filter(x => x.id !== id);
-      for (const k in sh.holds) { const ho = sh.holds[k]; const pl = holdPols(ho); ho.pols = pl.map((q, i) => (ho.cells[i] === id || q === id ? null : q)); ho.cells = ho.cells.map((c, i) => (c === id || pl[i] === id ? null : c)); ho.entries = ho.entries.filter(en => en.pod !== id && en.pol !== id); }
+      for (const k in sh.holds) { const ho = sh.holds[k]; const pl = holdPols(ho); ho.pols = pl.map((q, i) => (ho.cells[i] === id || q === id ? null : q)); ho.cells = ho.cells.map((c, i) => (c === id || pl[i] === id ? null : c)); ho.entries = ho.entries.filter(en => en.pod !== id && en.pol !== id); ho.shapes = (ho.shapes || []).filter(q => q.pod !== id && q.pol !== id); }
       sh.deck5.shapes = sh.deck5.shapes.filter(s => s.pod !== id && s.pol !== id);
       if (sh.activePol === id) sh.activePol = null;
       save(); rerender(); break;
     }
     // hold editor
-    case 'mode': UI.mode = v; rerender(); break;
+    case 'mode': UI.mode = v; UI.dkPoly = null; rerender(); break;
+    case 'pickErase': UI.erasePod = v || null; if (UI.view === 'deck5') { $('#d5Tools').innerHTML = d5ToolsHtml(); } else rerender(); break;
+    case 'dkpoly': if (v === 'finish') dkPolyFinish(); else if (v === 'cancel') { UI.dkPoly = null; dkPolyDraw(); } else if (UI.dkPoly) { UI.dkPoly.pts.pop(); if (!UI.dkPoly.pts.length) UI.dkPoly = null; dkPolyDraw(); } break;
     case 'pickPod': UI.pod = v; $$('.chip').forEach(c => c.classList.toggle('on', c.dataset.v === v)); { const f = $('[data-act="fillHold"]'); if (f) f.textContent = 'Fill with ' + code(v); } break;
-    case 'undo': { const ho = getHold(UI.deck, UI.hold, true); if (UI.undo.length) { const u = UI.undo.pop(); ho.cells = u.cells; ho.pols = u.pols || holdPols({ cells: u.cells, entries: ho.entries }); ho.arrows = u.arrows; ho.evs = u.evs || []; if (UI.mode === 'ev' || UI.mode === 'arrow') rerender(); else { drawHoldGrid(); refreshHoldMeta(); } save(); } break; }
+    case 'undo': { const ho = getHold(UI.deck, UI.hold, true); if (UI.undo.length) { const u = UI.undo.pop(); ho.cells = u.cells; ho.pols = u.pols || holdPols({ cells: u.cells, entries: ho.entries }); ho.arrows = u.arrows; ho.evs = u.evs || []; ho.shapes = u.shapes || []; if (UI.mode === 'ev' || UI.mode === 'arrow') rerender(); else { drawHoldGrid(); refreshHoldMeta(); } save(); } break; }
     case 'fillHold': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.fill(UI.pod); ho.pols.fill(sh.activePol || null); drawHoldGrid(); afterStroke('paint'); } break;
     case 'clearEvs': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.evs.length} EV marks from this hold?`, 'Remove EV marks')) { pushUndo(); ho.evs = []; save(); rerender(); } break; }
     case 'clearArrows': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.arrows.length} arrows from this hold?`, 'Remove arrows')) { pushUndo(); ho.arrows = []; save(); rerender(); } break; }
-    case 'clearHold': { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.fill(null); ho.pols.fill(null); drawHoldGrid(); afterStroke('erase'); } break;
+    case 'clearHold': {
+      const ho = getHold(UI.deck, UI.hold, true), ep = UI.erasePod;
+      if (!(await confirmBox(ep ? `Discharge all ${code(ep)} from Deck ${UI.deck}, Hold ${UI.hold}?` : `Discharge everything from Deck ${UI.deck}, Hold ${UI.hold}?`, 'Discharge'))) break;
+      pushUndo();
+      ho.cells.forEach((c, i) => { if (c && (!ep || c === ep)) { ho.cells[i] = null; ho.pols[i] = null; } });
+      ho.shapes = ho.shapes.filter(q => ep && q.pod !== ep);
+      drawHoldGrid(); afterStroke('erase'); break;
+    }
     case 'addEntry': { const ho = getHold(UI.deck, UI.hold, true); if (!dischPorts().length) { toast('Add a discharging port first.'); break; } ho.entries.push({ id: uid(), pod: UI.pod || dischPorts()[0].id, pol: sh.activePol || '', units: '', brand: '' }); save(); $('#entries').innerHTML = entriesHtml(ho); const last = $$('#entries .entry').pop(); last && $('[data-ebind="units"]', last).focus(); break; }
     case 'delEntry': { const ho = getHold(UI.deck, UI.hold, true); const en = ho.entries.find(x => x.id === id); if (await confirmBox(`Remove ${en.units || 0} ${code(en.pod)} units from this hold?`, 'Remove')) { ho.entries = ho.entries.filter(x => x.id !== id); save(); $('#entries').innerHTML = entriesHtml(ho); refreshHoldMeta(); } break; }
-    case 'navDeck': { const d = +v; if (d === 5) { UI.view = 'deck5'; UI.d5.zoom = null; UI.d5.vb = null; UI.d5.sel = null; UI.d5undo = []; } else { UI.view = 'hold'; UI.deck = d; if (!holdsFor(d).includes(UI.hold)) UI.hold = holdsFor(d)[0]; UI.undo = []; UI.dv.vb = null; } render(); break; }
-    case 'navHold': if (UI.view === 'deck5') { UI.d5.zoom = v === 'all' ? null : +v; UI.d5.vb = null; render(); } else { UI.dv.vb = null; if (v === 'all') { UI.dv.all = true; } else { UI.dv.all = false; UI.hold = +v; UI.undo = []; } render(); } break;
+    case 'navDeck': { UI.dkPoly = null; const d = +v; if (d === 5) { UI.view = 'deck5'; UI.d5.zoom = null; UI.d5.vb = null; UI.d5.sel = null; UI.d5undo = []; } else { UI.view = 'hold'; UI.deck = d; if (!holdsFor(d).includes(UI.hold)) UI.hold = holdsFor(d)[0]; UI.undo = []; UI.dv.vb = null; } render(); break; }
+    case 'navHold': UI.dkPoly = null; if (UI.view === 'deck5') { UI.d5.zoom = v === 'all' ? null : +v; UI.d5.vb = null; render(); } else { UI.dv.vb = null; if (v === 'all') { UI.dv.all = true; } else { UI.dv.all = false; UI.hold = +v; UI.undo = []; } render(); } break;
     // deck 5
     case 'd5tool': setTool(v); break;
+    case 'd5EraseAll': { const ep = UI.erasePod, n = sh.deck5.shapes.filter(q => q.pod === ep).length; if (!n) { toast(`No ${code(ep)} cargo on Deck 5.`); break; }
+      if (await confirmBox(`Discharge all ${code(ep)} cargo from Deck 5 (${n} item${n === 1 ? '' : 's'})?`, 'Discharge')) { pushD5(); sh.deck5.shapes = sh.deck5.shapes.filter(q => q.pod !== ep); UI.d5.sel = null; save(); drawD5(); toast('Discharged. Undo brings it back.'); } break; }
     case 'd5poly': if (v === 'finish') polyFinish(); else if (v === 'cancel') { UI.d5.poly = null; polyDraw(); } else if (UI.d5.poly) { UI.d5.poly.pop(); polyDraw(); } break;
     case 'dkzoom': { const g = DECKPIC[UI.deck], vb = dkVB(), f = v === 'in' ? 1 / 1.6 : 1.6, cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
       const w = clamp(vb.w * f, 30, Math.min(g.w, g.h * vb.w / vb.h)), h = w * vb.h / vb.w; dkApply(dkClamp({ x: cx - w / 2, y: cy - h / 2, w, h })); drawHoldGrid(); break; }
