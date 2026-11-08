@@ -237,3 +237,6 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .ev-ghost { position: fixed; z-index: 70; width: 44px; height: 44px; transform: translate(-50%, -110%); pointer-events: none; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
 .ev-ghost .bolt { width: 44px; height: 44px; }
 .seg.wide button { padding: 0 6px; }
+#d5 rect, #d5 path, #d5 circle, #d5 polygon { vector-effect: non-scaling-stroke; }
+.seg.zoom button { min-width: 44px; font-size: 18px; font-weight: 800; }
+.seg.zoom button:last-child { font-size: 14px; }

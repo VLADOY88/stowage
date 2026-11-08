@@ -1,4 +1,4 @@
-const CACHE = 'stowage-v6';
+const CACHE = 'stowage-v7';
 const ASSETS = ['./', './index.html', './app.css', './app.js', './manifest.webmanifest', './locode.json', './deck5.png',
   './vendor/jspdf.umd.min.js', './vendor/jspdf.plugin.autotable.min.js',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
