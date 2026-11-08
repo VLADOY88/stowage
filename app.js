@@ -993,7 +993,18 @@ function drawD5Canvas(ctx, W, H, sh) {
 /* =========================================================
    PDF
    ========================================================= */
+function loadScript(src) { return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error('missing ' + src)); document.head.append(sc); }); }
+// Make sure the PDF library is loaded (works whether files sit in the main folder or in vendor/)
+async function ensurePdfLib() {
+  for (const dir of ['', 'vendor/']) {
+    if (!window.jspdf) await loadScript(dir + 'jspdf.umd.min.js').catch(() => { });
+    if (window.jspdf && !window.autoTable && !(window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable)) await loadScript(dir + 'jspdf.plugin.autotable.min.js').catch(() => { });
+  }
+  if (!window.jspdf) throw new Error('PDF library file jspdf.umd.min.js is missing on the website. Upload all files again.');
+  if (!window.autoTable && !(window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable)) throw new Error('PDF table file jspdf.plugin.autotable.min.js is missing on the website. Upload all files again.');
+}
 async function buildPdf() {
+  await ensurePdfLib();
   const sh = ship(), { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const AT = o => (window.autoTable ? window.autoTable(doc, o) : doc.autoTable(o));
