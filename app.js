@@ -6,8 +6,11 @@
 /* ---------- Constants ---------- */
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 16, GR = 8;                 // hold paint grid (fore-aft x athwartships)
-const D5W = 1000, D5H = 340;           // deck 5 drawing space
-const D5HOLDS = [{ h: 4, x0: 0, x1: 250 }, { h: 3, x0: 250, x1: 500 }, { h: 2, x0: 500, x1: 750 }, { h: 1, x0: 750, x1: 1000 }];
+const D5W = 1000, D5H = 300;           // deck 5 drawing space (matches deck5.png, 1611 x 484)
+const D5HOLDS = [{ h: 4, x0: 0, x1: 275 }, { h: 3, x0: 275, x1: 581 }, { h: 2, x0: 581, x1: 813 }, { h: 1, x0: 813, x1: 1000 }];
+const D5IMG = new Image(); D5IMG.src = 'deck5.png';
+// map a deck 5 x position into the equal-width hold columns of the ship overview (0..1)
+function d5Col(x) { const z = D5HOLDS.find(q => x <= q.x1) || D5HOLDS[3]; const j = D5HOLDS.indexOf(z); return (j + clamp((x - z.x0) / (z.x1 - z.x0), 0, 1)) / 4; }
 const PALETTE = [
   ['Pink', '#FF99FF'], ['Yellow', '#FFFF00'], ['Turquoise', '#00FFFF'], ['Light green', '#92D050'],
   ['Light blue', '#00B0F0'], ['Tan', '#FFCC99'], ['Orange', '#FFC000'], ['Bright green', '#00FF00'],
@@ -29,7 +32,7 @@ function holdsFor(d) {
   if (d === 12) return [4, 3, 2];
   return [4, 3, 2, 1];
 }
-const holdOfX = x => (x < 250 ? 4 : x < 500 ? 3 : x < 750 ? 2 : 1);
+const holdOfX = x => (D5HOLDS.find(q => x < q.x1) || D5HOLDS[3]).h;
 
 /* ---------- Utils ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -93,10 +96,23 @@ async function load() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
 }
 function newShip(name) {
+  // deck5.v2 marks the current deck 5 coordinate system
   const w = name.trim().toUpperCase().split(/\s+/);
-  return { id: uid(), name, short: (w[0] || 'SHIP').slice(0, 3) + (w[1] ? w[1][0] : ''), voyage: '', depDate: '', ports: [], activePol: null, holds: {}, deck5: { shapes: [] }, email: 'vppetrov88@gmail.com' };
+  return { id: uid(), name, short: (w[0] || 'SHIP').slice(0, 3) + (w[1] ? w[1][0] : ''), voyage: '', depDate: '', ports: [], activePol: null, holds: {}, deck5: { shapes: [], v2: true }, email: 'vppetrov88@gmail.com' };
 }
-function fixShip(s) { s.holds ||= {}; s.deck5 ||= { shapes: [] }; s.ports ||= []; s.email ||= 'vppetrov88@gmail.com'; }
+function fixShip(s) {
+  s.holds ||= {}; s.deck5 ||= { shapes: [] }; s.ports ||= []; s.email ||= 'vppetrov88@gmail.com';
+  if (!s.deck5.v2) {
+    const OLD = [0, 250, 500, 750, 1000], NEW = [0, 275, 581, 813, 1000];
+    const mx = x => { const j = clamp(Math.floor(x / 250), 0, 3); return NEW[j] + (x - OLD[j]) / 250 * (NEW[j + 1] - NEW[j]); }, my = y => y * 300 / 340;
+    s.deck5.shapes.forEach(q => {
+      if (q.type === 'free') q.pts = q.pts.map(p => [mx(p[0]), my(p[1])]);
+      else if (q.type === 'ev') { const cx = mx(q.x + q.w / 2), cy = my(q.y + q.h / 2); q.x = cx - q.w / 2; q.y = cy - q.h / 2; }
+      else { const x1 = mx(q.x + q.w); q.x = mx(q.x); q.w = x1 - q.x; q.y = my(q.y); q.h = my(q.h); }
+    });
+    s.deck5.v2 = true;
+  }
+}
 function seedShip() {
   const s = newShip('Dover Highway'); s.short = 'DOVH'; s.voyage = '132A'; s.depDate = '2026-11-04';
   const P = (locode, name, code, type, color) => ({ id: uid(), locode, name, code, type, color: color || null, expUnits: '', expPkgs: '' });
@@ -383,7 +399,20 @@ function drawShip(ctx, W, H, sh, T) {
         }
       }
     }
-    if (d === 5) { ctx.save(); ctx.beginPath(); ctx.rect(L.x0, y, L.cw * 4, L.rh); ctx.clip(); ctx.translate(L.x0, y); ctx.scale(L.cw * 4 / D5W, L.rh / D5H); drawD5Shapes(ctx, sh, false); ctx.restore(); sh.deck5.shapes.filter(q => q.type === 'ev').forEach(q => drawBolt(ctx, L.x0 + (q.x + q.w / 2) * L.cw * 4 / D5W, y + (q.y + q.h / 2) * L.rh / D5H, Math.max(7, L.rh * 0.32))); }
+    if (d === 5) {
+      const X = v => L.x0 + d5Col(v) * L.cw * 4, Y = v => y + v * L.rh / D5H;
+      ctx.save(); ctx.beginPath(); ctx.rect(L.x0, y, L.cw * 4, L.rh); ctx.clip();
+      sh.deck5.shapes.forEach(q => {
+        if (q.type === 'ev') return;
+        const p = sh.ports.find(o => o.id === q.pod); ctx.fillStyle = (p && p.color) || '#cfd8e3'; ctx.strokeStyle = '#1d2b3f'; ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        if (q.type === 'free') { q.pts.forEach((pt, i) => i ? ctx.lineTo(X(pt[0]), Y(pt[1])) : ctx.moveTo(X(pt[0]), Y(pt[1]))); ctx.closePath(); }
+        else ctx.rect(X(q.x), Y(q.y), X(q.x + q.w) - X(q.x), Y(q.y + q.h) - Y(q.y));
+        ctx.fill(); ctx.stroke();
+      });
+      ctx.restore();
+      sh.deck5.shapes.filter(q => q.type === 'ev').forEach(q => drawBolt(ctx, X(q.x + q.w / 2), Y(q.y + q.h / 2), Math.max(7, L.rh * 0.32)));
+    }
     ctx.strokeStyle = T.line; ctx.lineWidth = 1; ctx.globalAlpha = 0.7;
     for (let j = 0; j < 4; j++) if (hs.includes(4 - j)) ctx.strokeRect(L.x0 + j * L.cw + 0.5, y + 0.5, L.cw - 1, L.rh - 1);
     ctx.globalAlpha = 1;
@@ -424,14 +453,14 @@ function tabPorts() {
     <label class="fld"><span>Add port</span><input id="portSearch" placeholder="Start typing a port name or UN/LOCODE" autocomplete="off" autocorrect="off" spellcheck="false"></label>
     <div id="searchRes"></div>
   </div>
-  <p class="hint">Drag ≡ to change the rotation. L = loading, D = discharging, L+D = both.</p>
+  <p class="hint">Tap the number to move a port in the rotation. L = loading, D = discharging, L+D = both.</p>
   <ul class="plist" id="portList">${sh.ports.map(portRow).join('') || '<li class="empty">No ports yet. Search above to add the first one.</li>'}</ul>`;
 }
 function portRow(p) {
   const open = UI.openPort === p.id;
   return `<li class="prow ${open ? 'open' : ''}" data-id="${p.id}">
     <div class="pmain">
-      <span class="handle" aria-label="Drag to reorder">${I.grip}</span>
+      <label class="pos"><span class="sr">Position in rotation</span><select data-pos="${p.id}">${ship().ports.map((_, i) => `<option value="${i}" ${ship().ports.indexOf(p) === i ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
       <i class="dot ${p.type === 'L' ? 'none' : ''}" style="${p.type !== 'L' ? 'background:' + p.color : ''}"></i>
       <button class="pinfo" data-act="portOpen" data-id="${p.id}"><b>${esc(p.code)}</b><span>${esc(p.name)}</span><small>${esc(p.locode)}</small></button>
       <div class="seg sm">${[['L', 'L'], ['D', 'D'], ['LD', 'L+D']].map(([v, n]) => `<button data-act="ptype" data-id="${p.id}" data-v="${v}" class="${p.type === v ? 'on' : ''}">${n}</button>`).join('')}</div>
@@ -449,11 +478,6 @@ function portRow(p) {
   </li>`;
 }
 function afterPorts() {
-  const list = $('#portList');
-  if (window.Sortable && list) Sortable.create(list, {
-    handle: '.handle', animation: 150, delay: 0,
-    onEnd: () => { const ids = $$('.prow', list).map(li => li.dataset.id); const sh = ship(); sh.ports.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); save(); $('#rot').textContent = rotation(sh); }
-  });
   const ps = $('#portSearch');
   ps.oninput = async () => { const v = ps.value; const r = await searchLoc(v); if (ps.value === v) $('#searchRes').innerHTML = resultsHtml(r, 'addPort'); };
   $$('[data-locfor]').forEach(inp => inp.oninput = async () => { const v = inp.value; const r = await searchLoc(v); if (inp.value === v) $(`[data-locres="${inp.dataset.locfor}"]`).innerHTML = resultsHtml(r, 'setLoc', `data-id="${inp.dataset.locfor}"`); });
@@ -525,8 +549,8 @@ function tabExport() {
   </div>
   <div class="card">
     <h2 class="ch">New voyage</h2>
-    <p class="muted">Removes all cargo, MAFIs and expected numbers for ${esc(sh.name)}. Ports stay.</p>
-    <button class="btn danger" data-act="newVoyage">Clear cargo for new voyage</button>
+    <p class="muted">Removes all cargo, MAFIs, EV marks, arrows, unit heights and all ports for ${esc(sh.name)}.</p>
+    <button class="btn danger" data-act="newVoyage">Clear cargo and ports for new voyage</button>
   </div>`;
 }
 
@@ -725,7 +749,6 @@ function d5ToolsHtml() {
 function d5Hint() {
   return ({ select: 'Tap an item to edit it. Drag to move. Drag the round handle to resize.', rect: 'Drag on the deck to draw a rectangle for units.', free: 'Draw a free shape with your finger.', mafi: 'Tap on the deck where the MAFI stands.', ev: 'Tap the exact spot of each electric vehicle. Use Select to move or delete.' })[UI.d5.tool];
 }
-const d5Outline = 'M6 22 H850 Q985 34 994 170 Q985 306 850 318 H6 Z';
 function labelLines(s) {
   const pp = `${s.pod ? code(s.pod) : '?'}/${s.pol ? code(s.pol) : '?'}`;
   if (s.type === 'mafi') {
@@ -764,12 +787,9 @@ function shapeSvg(s) {
 function drawD5() {
   const svg = $('#d5'); if (!svg) return;
   const z = D5HOLDS.find(x => x.h === UI.d5.zoom);
-  svg.setAttribute('viewBox', z ? `${z.x0 - 12} 10 ${z.x1 - z.x0 + 24} ${D5H - 20}` : `0 0 ${D5W} ${D5H}`);
+  svg.setAttribute('viewBox', z ? `${z.x0 - 10} 0 ${z.x1 - z.x0 + 20} ${D5H}` : `0 0 ${D5W} ${D5H}`);
   svg.innerHTML = `
-    <path d="${d5Outline}" class="d5-hull"/>
-    ${[250, 500, 750].map(x => `<line x1="${x}" x2="${x}" y1="22" y2="318" class="d5-div"/>`).join('')}
-    ${D5HOLDS.map(x => `<text x="${(x.x0 + x.x1) / 2}" y="16" class="d5-lbl" text-anchor="middle">Hold ${x.h}</text>`).join('')}
-    <line x1="20" x2="840" y1="170" y2="170" class="d5-cl"/>
+    <image href="deck5.png" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/>
     ${ship().deck5.shapes.map(shapeSvg).join('')}
     <g id="tmp"></g>`;
   const del = $('#d5Del'); if (del) del.disabled = !UI.d5.sel;
@@ -897,10 +917,7 @@ function drawD5Shapes(ctx, sh, labels) {
 }
 function drawD5Canvas(ctx, W, H, sh) {
   const k = W / D5W; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.save(); ctx.scale(k, H / D5H);
-  ctx.fillStyle = '#f3f6fa'; ctx.strokeStyle = '#33465f'; ctx.lineWidth = 2.5; ctx.fill(new Path2D(d5Outline)); ctx.stroke(new Path2D(d5Outline));
-  ctx.setLineDash([8, 6]); ctx.lineWidth = 1.2; [250, 500, 750].forEach(x => { ctx.beginPath(); ctx.moveTo(x, 22); ctx.lineTo(x, 318); ctx.stroke(); }); ctx.setLineDash([]);
-  ctx.fillStyle = '#33465f'; ctx.font = '700 13px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center';
-  D5HOLDS.forEach(x => ctx.fillText('Hold ' + x.h, (x.x0 + x.x1) / 2, 14));
+  if (D5IMG.complete && D5IMG.naturalWidth) ctx.drawImage(D5IMG, 0, 0, D5W, D5H);
   drawD5Shapes(ctx, sh, true); ctx.restore();
 }
 
@@ -954,6 +971,7 @@ async function buildPdf() {
 
   // Page 4: deck 5 + MAFI list
   doc.addPage(); header('DECK 5 (MAIN DECK) AND MAFI LIST');
+  try { await D5IMG.decode(); } catch (e) { }
   const c5 = document.createElement('canvas'); c5.width = 2400; c5.height = Math.round(2400 * D5H / D5W);
   drawD5Canvas(c5.getContext('2d'), c5.width, c5.height, sh);
   doc.addImage(c5.toDataURL('image/jpeg', 0.92), 'JPEG', 10, 19, 277, 277 * D5H / D5W);
@@ -1037,8 +1055,9 @@ document.addEventListener('click', async e => {
     case 'savePdf': if (UI.pdf) shareFile(UI.pdf.blob, UI.pdf.name, 'application/pdf', UI.pdf.name); break;
     case 'backup': { const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' }); shareFile(blob, `stowage-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json', 'Stowage backup'); break; }
     case 'newVoyage': {
-      if (!(await confirmBox(`Remove all cargo, MAFIs and expected numbers for ${sh.name}?`, 'Clear cargo'))) break;
-      sh.holds = {}; sh.deck5 = { shapes: [] }; sh.ports.forEach(p => { p.expUnits = ''; p.expPkgs = ''; }); UI.pdf = null; save(); rerender(); toast('Cargo cleared. Ports kept.'); break;
+      if (!(await confirmBox(`Remove all cargo and all ports for ${sh.name}? Save a backup first if you may need this voyage again.`, 'Clear all'))) break;
+      sh.holds = {}; sh.deck5 = { shapes: [], v2: true }; sh.ports = []; sh.activePol = null; UI.pod = null; UI.openPort = null; UI.pdf = null;
+      save(); UI.tab = 'ports'; rerender(); toast('Cargo and ports cleared. Add the ports for the new voyage.'); break;
     }
   }
 });
@@ -1065,6 +1084,13 @@ document.addEventListener('change', async e => {
   if (t.dataset.bind === 'activePol' || t.dataset.bind === 'name') rerender();
   if (t.dataset.pbind === 'expUnits' || t.dataset.pbind === 'expPkgs') rerender();
   if (t.dataset.pbind === 'code' && !t.value) { const p = P(t.dataset.id); p.code = uniqueCode(p.locode.slice(2), p.id); save(); rerender(); }
+  if (t.dataset.pos) {
+    const sh = ship(), from = sh.ports.findIndex(p => p.id === t.dataset.pos), to = +t.value;
+    const [p] = sh.ports.splice(from, 1); sh.ports.splice(to, 0, p); save(); rerender();
+    toast(`${p.code} moved to position ${to + 1}.`);
+    const li = document.querySelector(`.prow[data-id="${p.id}"]`); if (li) { li.classList.add('moved'); li.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    return;
+  }
   if (t.id === 'restore' && t.files[0]) {
     try {
       const d = JSON.parse(await t.files[0].text());

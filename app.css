@@ -46,7 +46,10 @@ svg { display: block; }
 .fld input, .fld select, .entry input, .entry select { width: 100%; min-height: 44px; padding: 8px 10px; font-size: 16px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface2); }
 .fld.inline { flex-direction: row; align-items: center; gap: 10px; padding: 0 14px; }
 .fld.inline span { white-space: nowrap; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 10px; }
+.fld input, .fld select { min-width: 0; max-width: 100%; }
+.fld input[type="date"] { -webkit-appearance: none; appearance: none; display: block; height: 44px; line-height: 26px; text-align: left; }
+.fld input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 .card { background: var(--surface); border-radius: 14px; padding: 12px 14px; margin: 10px 12px; border: 1px solid color-mix(in srgb, var(--line) 35%, transparent); }
 .hint { font-size: 13px; color: var(--muted); margin: 6px 14px; }
 
@@ -105,8 +108,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .prow { background: var(--surface); border-radius: 12px; margin: 6px 0; border: 1px solid color-mix(in srgb, var(--line) 35%, transparent); }
 .prow.open { border-color: var(--accent); }
 .pmain { display: flex; align-items: center; gap: 4px; padding: 4px 2px 4px 4px; }
-.handle { width: 36px; height: 44px; display: grid; place-items: center; color: var(--muted); touch-action: none; flex: none; }
-.handle svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; fill: none; }
+.pos { flex: none; position: relative; }
+.pos select { -webkit-appearance: none; appearance: none; width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--accent); background: var(--surface2); font-weight: 800; font-size: 16px; text-align: center; text-align-last: center; padding: 0; }
+.prow.moved { animation: flash 1.2s ease-out; }
+@keyframes flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 0 transparent; } }
 .pmain .dot { margin: 0; }
 .pinfo { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; text-align: left; border: 0; background: transparent; padding: 4px 4px; min-height: 44px; align-items: center; }
 .pinfo b { font-size: 17px; font-weight: 800; }
@@ -180,7 +185,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .d5-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 0 12px; }
 .d5-tools .chips { margin: 0; }
 .d5-tools .chip { min-height: 36px; min-width: 48px; }
-.d5-wrap { margin: 8px 6px 0; background: var(--surface); border-radius: 12px; }
+.d5-wrap { margin: 8px 6px 0; background: #ffffff; border-radius: 12px; padding: 4px; }
 #d5 { width: 100%; height: auto; max-height: 70svh; touch-action: none; font-family: var(--font); }
 .d5-hull { fill: var(--hull); stroke: var(--ink); stroke-width: 2.5; }
 .d5-div { stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 8 6; }
