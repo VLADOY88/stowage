@@ -5,7 +5,16 @@
 
 /* ---------- Constants ---------- */
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-const GC = 16, GR = 8;                 // hold paint grid (fore-aft x athwartships)
+const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
+// Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
+const DECKPIC = {
+  12: { w: 982, h: 295, cuts: [353, 751] }, 11: { w: 1406, h: 296, cuts: [358, 756, 1059] }, 10: { w: 1405, h: 295, cuts: [358, 756, 1059] },
+  9: { w: 1405, h: 295, cuts: [359, 758, 1061] }, 8: { w: 1408, h: 295, cuts: [359, 758, 1061] }, 7: { w: 1405, h: 295, cuts: [362, 759, 1061] },
+  6: { w: 1395, h: 295, cuts: [361, 759, 1062] }, 4: { w: 941, h: 296, cuts: [400, 703] }, 3: { w: 856, h: 295, cuts: [399, 703] },
+  2: { w: 703, h: 295, cuts: [399] }, 1: { w: 700, h: 296, cuts: [398] }
+};
+function deckHolds(d) { const g = DECKPIC[d], xs = [0, ...g.cuts, g.w]; return holdsFor(d).map((h, i) => ({ h, x0: xs[i], x1: xs[i + 1] })); }
+function upGrid(a) { if (!a || a.length !== 128) return a; const o = new Array(GC * GR).fill(null); for (let r = 0; r < GR; r++) for (let c = 0; c < GC; c++) o[r * GC + c] = a[(r >> 1) * 16 + (c >> 1)]; return o; }
 const D5W = 1000, D5H = 300;           // deck 5 drawing space (matches deck5.png, 1611 x 484)
 const D5HOLDS = [{ h: 4, x0: 0, x1: 275 }, { h: 3, x0: 275, x1: 581 }, { h: 2, x0: 581, x1: 813 }, { h: 1, x0: 813, x1: 1000 }];
 const D5IMG = new Image(); D5IMG.src = 'deck5.png';
@@ -102,6 +111,7 @@ function newShip(name) {
 }
 function fixShip(s) {
   s.holds ||= {}; s.deck5 ||= { shapes: [] }; s.ports ||= []; s.email ||= 'vppetrov88@gmail.com';
+  for (const k in s.holds) { const o = s.holds[k]; if (o.cells && o.cells.length === 128) { o.cells = upGrid(o.cells); if (o.pols) o.pols = upGrid(o.pols); } }
   if (!s.deck5.v2) {
     const OLD = [0, 250, 500, 750, 1000], NEW = [0, 275, 581, 813, 1000];
     const mx = x => { const j = clamp(Math.floor(x / 250), 0, 3); return NEW[j] + (x - OLD[j]) / 250 * (NEW[j + 1] - NEW[j]); }, my = y => y * 300 / 340;
@@ -137,10 +147,18 @@ const loadPorts = () => ship().ports.filter(p => p.type !== 'D');
 const rotation = sh => (sh.voyage ? sh.voyage + '=' : '') + sh.ports.map(p => p.code).join('=>');
 function getHold(d, h, create) {
   const sh = ship(), k = d + '-' + h; let o = sh.holds[k];
-  if (!o && create) o = sh.holds[k] = { cells: new Array(GC * GR).fill(null), entries: [], arrows: [], evs: [] };
+  if (!o && create) o = sh.holds[k] = { cells: new Array(GC * GR).fill(null), pols: new Array(GC * GR).fill(null), entries: [], arrows: [], evs: [] };
   if (o && !o.arrows) o.arrows = [];
   if (o && !o.evs) o.evs = [];
+  if (o && o.cells.length === 128) { o.cells = upGrid(o.cells); if (o.pols) o.pols = upGrid(o.pols); }
+  if (o && !o.pols) o.pols = holdPols(o);
   return o;
+}
+// loading port of each painted cell; older data is inferred from the hold's unit lines
+function holdPols(o) {
+  if (o.pols) return o.pols;
+  const by = {}; (o.entries || []).forEach(e => { (by[e.pod] ||= new Set()).add(e.pol); });
+  return o.cells.map(c => (c && by[c] && by[c].size === 1 ? [...by[c]][0] : null));
 }
 function bbox(s) {
   if (s.type === 'free') { const xs = s.pts.map(p => p[0]), ys = s.pts.map(p => p[1]); const x = Math.min(...xs), y = Math.min(...ys); return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }; }
@@ -164,6 +182,7 @@ function cargoRows(sh = ship()) {
   for (const s of sh.deck5.shapes) {
     if (s.type === 'ev') continue;
     const hold = shapeHold(s);
+    if (s.type === 'pkg') { rows.push({ deck: 5, hold, pod: s.pod, pol: s.pol, units: 0, pkgs: num(s.pkgs), mafis: 0, mt: num(s.mt), brand: 'Package' + (s.label ? ': ' + s.label : '') }); continue; }
     if (s.type === 'mafi') { const t = mafiTotals(s); rows.push({ deck: 5, hold, pod: s.pod, pol: s.pol, units: 0, pkgs: t.pkgs, mafis: s.mafis.length, mt: t.mt, brand: s.mafis.length > 1 ? 'MAFI stack' : 'MAFI' }); }
     else rows.push({ deck: 5, hold, pod: s.pod, pol: s.pol, units: num(s.units), pkgs: 0, mafis: 0, mt: 0, brand: s.label || '' });
   }
@@ -187,6 +206,11 @@ function mafiList(sh = ship()) {
     it.s.mafis.forEach(m => out.push({ id: it.s.id, hold: it.hold, podpol: code(it.s.pod) + '/' + code(it.s.pol), color: colorOf(it.s.pod), no: m.no, stack: st, loaded: m.loaded, pkgs: m.loaded ? num(m.pkgs) : 0, mt: m.loaded ? num(m.mt) : 0, tara: num(m.tara) }));
   }
   return out;
+}
+
+function pkgList(sh = ship()) {
+  return sh.deck5.shapes.filter(s => s.type === 'pkg').map(s => ({ s, id: s.id, hold: shapeHold(s), x: bbox(s).x, podpol: code(s.pod) + '/' + code(s.pol), color: colorOf(s.pod), pkgs: num(s.pkgs), mt: num(s.mt), label: s.label || '' }))
+    .sort((a, b) => b.hold - a.hold || a.x - b.x);
 }
 
 /* ---------- UN/LOCODE ---------- */
@@ -222,7 +246,7 @@ function uniqueCode(base, exceptId) {
 function nextColor() { const used = new Set(ship().ports.map(p => p.color)); const f = PALETTE.find(c => !used.has(c[1])); return f ? f[1] : PALETTE[0][1]; }
 
 /* ---------- UI state ---------- */
-const UI = { view: 'home', tab: 'ship', deck: 7, hold: 3, mode: 'paint', pod: null, undo: [], d5: { tool: 'select', sel: null, zoom: null }, pdf: null, openPort: null };
+const UI = { view: 'home', tab: 'ship', deck: 7, hold: 3, mode: 'paint', pod: null, undo: [], dv: { vb: null, deck: null, all: false }, d5undo: [], d5: { tool: 'select', sel: null, zoom: null }, pdf: null, openPort: null };
 const app = document.getElementById('app');
 function render() {
   const y = window.scrollY;
@@ -278,7 +302,7 @@ function renderHome() {
 /* =========================================================
    PLAN (tabs)
    ========================================================= */
-const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFIs'], ['export', 'Export']];
+const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFI/PKG'], ['export', 'Export']];
 function renderPlan() {
   const sh = ship();
   app.innerHTML = `
@@ -315,6 +339,9 @@ function drawBolt(ctx, cx, cy, sz) {
   ctx.fillStyle = '#ffd400'; ctx.fill(); ctx.lineWidth = Math.max(1, sz * 0.09); ctx.strokeStyle = '#0e2036'; ctx.stroke(); ctx.restore();
 }
 const boltSvg = (cx, cy, sz) => `<polygon points="${BOLT.map(([x, y]) => `${(cx + (x - 0.5) * sz).toFixed(1)},${(cy + (y - 0.5) * sz).toFixed(1)}`).join(' ')}" fill="#ffd400" stroke="#0e2036" stroke-width="${(sz * 0.09).toFixed(1)}" stroke-linejoin="round"/>`;
+const BOX_PATH = 'M2 5.5L8 2.5l6 3v6.5l-6 3-6-3z M2 5.5l6 3 6-3 M8 8.5V15';
+const boxSvg = (x, y, sz) => `<g transform="translate(${x} ${y}) scale(${sz / 16})"><path d="${BOX_PATH}" fill="#d9a85b" stroke="#0e2036" stroke-width="1.3" stroke-linejoin="round"/></g>`;
+function drawBox(ctx, x, y, sz) { ctx.save(); ctx.translate(x, y); ctx.scale(sz / 16, sz / 16); const p = new Path2D(BOX_PATH); ctx.fillStyle = '#d9a85b'; ctx.fill(p); ctx.lineWidth = 1.3; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0e2036'; ctx.stroke(p); ctx.restore(); }
 const BOLT_ICON = `<svg viewBox="0 0 24 24" class="bolt">${boltSvg(12, 12, 22)}</svg>`;
 
 /* ---------- Ship tab ---------- */
@@ -336,7 +363,7 @@ function afterShip() {
     const r = cv.getBoundingClientRect(), hit = shipHit(schemL, e.clientX - r.left, e.clientY - r.top);
     if (!hit) return;
     if (hit.deck === 5) { UI.view = 'deck5'; UI.d5.zoom = null; UI.d5.sel = null; }
-    else { UI.view = 'hold'; UI.deck = hit.deck; UI.hold = hit.hold; UI.undo = []; }
+    else { UI.view = 'hold'; UI.deck = hit.deck; UI.hold = hit.hold; UI.undo = []; UI.dv.vb = null; UI.dv.all = false; }
     render();
   };
 }
@@ -362,8 +389,9 @@ function pill(ctx, txt, x, y, fs, bg, fg) {
   ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 3) : ctx.rect(x - w / 2, y - h / 2, w, h); ctx.fill();
   ctx.fillStyle = fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, x, y + 0.5);
 }
-function drawShip(ctx, W, H, sh, T) {
-  const L = shipLayout(W, H), rows = cargoRows(sh);
+function drawShip(ctx, W, H, sh, T, pol) {
+  const L = shipLayout(W, H), rows = cargoRows(sh).filter(r => !pol || r.pol === pol);
+  const holdHas = (d, h) => rows.some(r => r.deck === d && r.hold === h);
   const agg = {}; rows.forEach(r => { const k = r.deck + '-' + r.hold; (agg[k] ||= {}); const a = (agg[k][r.pod] ||= { units: 0, pkgs: 0 }); a.units += r.units; a.pkgs += r.pkgs; });
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   const fsH = Math.max(9, L.rh * 0.34);
@@ -392,10 +420,11 @@ function drawShip(ctx, W, H, sh, T) {
       if (d !== 5) {
         const ho = sh.holds[d + '-' + h];
         if (ho) {
-          const cw = L.cw / GC, ch = L.rh / GR;
-          ho.cells.forEach((v, n) => { if (!v) return; const p = sh.ports.find(q => q.id === v); if (!p) return; ctx.fillStyle = p.color || '#ccc'; ctx.fillRect(x + (n % GC) * cw, y + Math.floor(n / GC) * ch, cw + 0.6, ch + 0.6); });
-          (ho.arrows || []).forEach(r => drawArrow(ctx, x + r[0] * L.cw, y + r[1] * L.rh, x + r[2] * L.cw, y + r[3] * L.rh, Math.max(1.2, L.rh * 0.05)));
-          (ho.evs || []).forEach(v => drawBolt(ctx, x + v[0] * L.cw, y + v[1] * L.rh, Math.max(7, L.rh * 0.32)));
+          const cw = L.cw / GC, ch = L.rh / GR, pl = holdPols(ho);
+          const show = !pol || holdHas(d, h) || pl.some(q => q === pol);
+          ho.cells.forEach((v, n) => { if (!v || (pol && pl[n] !== pol)) return; const p = sh.ports.find(q => q.id === v); if (!p) return; ctx.fillStyle = p.color || '#ccc'; ctx.fillRect(x + (n % GC) * cw, y + Math.floor(n / GC) * ch, cw + 0.6, ch + 0.6); });
+          if (show) (ho.arrows || []).forEach(r => drawArrow(ctx, x + r[0] * L.cw, y + r[1] * L.rh, x + r[2] * L.cw, y + r[3] * L.rh, Math.max(1.2, L.rh * 0.05)));
+          (ho.evs || []).filter(v => !pol || v[2] === pol || (v[2] == null && show)).forEach(v => drawBolt(ctx, x + v[0] * L.cw, y + v[1] * L.rh, Math.max(7, L.rh * 0.32)));
         }
       }
     }
@@ -403,7 +432,7 @@ function drawShip(ctx, W, H, sh, T) {
       const X = v => L.x0 + d5Col(v) * L.cw * 4, Y = v => y + v * L.rh / D5H;
       ctx.save(); ctx.beginPath(); ctx.rect(L.x0, y, L.cw * 4, L.rh); ctx.clip();
       sh.deck5.shapes.forEach(q => {
-        if (q.type === 'ev') return;
+        if (q.type === 'ev' || (pol && q.pol !== pol)) return;
         const p = sh.ports.find(o => o.id === q.pod); ctx.fillStyle = (p && p.color) || '#cfd8e3'; ctx.strokeStyle = '#1d2b3f'; ctx.lineWidth = 0.8;
         ctx.beginPath();
         if (q.type === 'free') { q.pts.forEach((pt, i) => i ? ctx.lineTo(X(pt[0]), Y(pt[1])) : ctx.moveTo(X(pt[0]), Y(pt[1]))); ctx.closePath(); }
@@ -411,7 +440,7 @@ function drawShip(ctx, W, H, sh, T) {
         ctx.fill(); ctx.stroke();
       });
       ctx.restore();
-      sh.deck5.shapes.filter(q => q.type === 'ev').forEach(q => drawBolt(ctx, X(q.x + q.w / 2), Y(q.y + q.h / 2), Math.max(7, L.rh * 0.32)));
+      sh.deck5.shapes.filter(q => q.type === 'ev' && (!pol || q.pol === pol)).forEach(q => drawBolt(ctx, X(q.x + q.w / 2), Y(q.y + q.h / 2), Math.max(7, L.rh * 0.32)));
     }
     ctx.strokeStyle = T.line; ctx.lineWidth = 1; ctx.globalAlpha = 0.7;
     for (let j = 0; j < 4; j++) if (hs.includes(4 - j)) ctx.strokeRect(L.x0 + j * L.cw + 0.5, y + 0.5, L.cw - 1, L.rh - 1);
@@ -424,7 +453,7 @@ function drawShip(ctx, W, H, sh, T) {
       shown.forEach((t, k) => pill(ctx, t, L.x0 + L.cw * (j + 0.5), y + L.rh * (shown.length === 1 ? 0.5 : 0.3 + k * 0.4), fs, 'rgba(255,255,255,.9)', '#0e2036'));
     }
     for (let j = 0; j < 4; j++) {
-      const h = 4 - j, o = sh.holds[d + '-' + h]; if (!hs.includes(h) || !o || !o.height) continue;
+      const h = 4 - j, o = sh.holds[d + '-' + h]; if (!hs.includes(h) || !o || !o.height || (pol && !holdHas(d, h))) continue;
       const hh = HEIGHTS.find(x => x[0] === o.height); if (!hh) continue;
       const fs = Math.max(6.5, Math.min(L.rh * 0.24, L.cw * 0.1));
       ctx.font = `800 ${fs}px -apple-system,system-ui,Helvetica,sans-serif`;
@@ -510,19 +539,22 @@ function tabSummary() {
   <div class="card tblwrap"><table class="tbl"><thead><tr><th>POD</th><th>H4</th><th>H3</th><th>H2</th><th>H1</th><th>Units</th><th>PKGs</th><th>MT</th></tr></thead><tbody>
   ${pods.map(pod => { const m = rows.filter(r => r.pod === pod), a = sumRows(m); return `<tr><td><i class="dot" style="background:${colorOf(pod)}"></i>${esc(code(pod))}</td>${[4, 3, 2, 1].map(h => `<td>${fmt(m.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))}</td>`).join('')}<td><b>${fmt(a.units)}</b></td><td>${fmt(a.pkgs)}</td><td>${fmt(a.mt, 1)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No cargo on board</td></tr>'}
   </tbody><tfoot><tr><td>Total</td>${[4, 3, 2, 1].map(h => `<td>${fmt(rows.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))}</td>`).join('')}<td>${fmt(tot.units)}</td><td>${fmt(tot.pkgs)}</td><td>${fmt(tot.mt, 1)}</td></tr></tfoot></table></div>
-  <p class="hint">PKGs: packages on loaded MAFIs. An empty MAFI or empty MAFI stack counts as 1 PKG. MT: package weight plus MAFI tare.</p>
+  <p class="hint">PKGs: packages on Deck 5 and on loaded MAFIs. An empty MAFI or empty MAFI stack counts as 1 PKG. MT: package weight plus MAFI tare.</p>
   <h2 class="sh">Loaded at each port</h2>
   ${loadCards || '<p class="muted">Mark ports as L or L+D in the Ports tab.</p>'}`;
 }
 
 /* ---------- MAFIs tab ---------- */
 function tabMafis() {
-  const list = mafiList();
-  if (!list.length) return `<div class="empty-state"><p>No MAFIs on Deck 5 yet.</p><button class="btn primary" data-act="openD5">Open Deck 5</button></div>`;
+  const list = mafiList(), pk = pkgList();
+  if (!list.length && !pk.length) return `<div class="empty-state"><p>No MAFIs or packages on Deck 5 yet.</p><button class="btn primary" data-act="openD5">Open Deck 5</button></div>`;
+  const pkHtml = pk.length ? `<h2 class="sh">Packages</h2><div class="card tblwrap"><table class="tbl mafi"><thead><tr><th>Hold</th><th>POD/POL</th><th>Package</th><th>PKGs</th><th>MT</th></tr></thead><tbody>
+    ${pk.map(x => `<tr data-act="openMafi" data-id="${x.id}"><td>${x.hold}</td><td><i class="dot" style="background:${x.color}"></i>${esc(x.podpol)}</td><td>${esc(x.label || '–')}</td><td>${fmt(x.pkgs)}</td><td>${fmt(x.mt, 1)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td>Total</td><td></td><td>${pk.length} items</td><td>${fmt(pk.reduce((a, x) => a + x.pkgs, 0))}</td><td>${fmt(pk.reduce((a, x) => a + x.mt, 0), 1)}</td></tr></tfoot></table></div>` : '';
   return `<button class="btn" data-act="openD5">Open Deck 5</button>
   ${[4, 3, 2, 1].map(h => { const m = list.filter(x => x.hold === h); if (!m.length) return ''; return `<h2 class="sh">Hold ${h}</h2><div class="card tblwrap"><table class="tbl mafi"><thead><tr><th>POD/POL</th><th>MAFI No.</th><th>Stack</th><th>Loaded</th><th>PKGs</th><th>MT</th><th>Tara</th></tr></thead><tbody>
     ${m.map(x => `<tr data-act="openMafi" data-id="${x.id}"><td><i class="dot" style="background:${x.color}"></i>${esc(x.podpol)}</td><td>${esc(x.no || '–')}</td><td>${esc(x.stack)}</td><td>${x.loaded ? 'Yes' : 'No'}</td><td>${fmt(x.pkgs)}</td><td>${fmt(x.mt, 1)}</td><td>${fmt(x.tara, 1)}</td></tr>`).join('')}
-    </tbody></table></div>`; }).join('')}`;
+    </tbody></table></div>`; }).join('')}${pkHtml}`;
 }
 
 /* ---------- Export tab ---------- */
@@ -531,14 +563,24 @@ function tabExport() {
   return `
   <div class="card">
     <h2 class="ch">PDF report</h2>
-    <p class="muted">Stowage plan, stowage detail, summary, Deck 5 plan and MAFI list.</p>
+    <p class="muted">Stowage plan, stowage plan for this port's loading, stowage detail, loading summary for this port, loading summary for all ports, Deck 5 plan, MAFI and package list.</p>
     <label class="fld"><span>Send to</span><input type="email" data-bind="email" value="${esc(sh.email)}"></label>
     <button class="btn primary big" data-act="makePdf">Create PDF</button>
     ${UI.pdf ? `<div class="pdfready">
       <p><b>${esc(UI.pdf.name)}</b> is ready.</p>
-      <button class="btn primary" data-act="sharePdf">Email PDF</button>
-      <button class="btn" data-act="savePdf">Save to Files</button>
+      <button class="btn primary" data-act="sharePdf" data-v="pdf">Email PDF</button>
+      <button class="btn" data-act="savePdf" data-v="pdf">Save to Files</button>
       <p class="hint">Email PDF opens the share menu. Choose Mail. The address ${esc(sh.email)} is copied, so paste it into the To field. Without signal, the email waits in your Outbox.</p>
+    </div>` : ''}
+  </div>
+  <div class="card">
+    <h2 class="ch">Deck 5 PDF</h2>
+    <p class="muted">Landscape. Whole deck, then each hold enlarged, then the item list, for checking the Deck 5 loading.</p>
+    <button class="btn primary big" data-act="makePdf5">Create Deck 5 PDF</button>
+    ${UI.pdf5 ? `<div class="pdfready">
+      <p><b>${esc(UI.pdf5.name)}</b> is ready.</p>
+      <button class="btn primary" data-act="sharePdf" data-v="pdf5">Email PDF</button>
+      <button class="btn" data-act="savePdf" data-v="pdf5">Save to Files</button>
     </div>` : ''}
   </div>
   <div class="card">
@@ -560,7 +602,7 @@ function tabExport() {
 function bottomNav() {
   const d = UI.view === 'deck5' ? 5 : UI.deck, hs = holdsFor(d);
   return `<nav class="bnav">
-    <div class="brow"><span class="blbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>${h}</button>`; }).join('')}${d === 5 ? `<button class="bchip wide ${UI.d5.zoom == null ? 'on' : ''}" data-act="navHold" data-v="all">All</button>` : ''}</div>
+    <div class="brow"><span class="blbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>${h}</button>`; }).join('')}<button class="bchip wide ${(d === 5 ? UI.d5.zoom == null : UI.dv.all) ? 'on' : ''}" data-act="navHold" data-v="all">All</button></div>
     <div class="brow"><span class="blbl">Deck</span><div class="dscroll">${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</div></div>
   </nav>`;
 }
@@ -581,15 +623,16 @@ function renderHold() {
       <button data-act="mode" data-v="arrow" class="${UI.mode === 'arrow' ? 'on' : ''}">Arrow</button>
       <button data-act="mode" data-v="ev" class="${UI.mode === 'ev' ? 'on' : ''}">EV</button>
     </div>
-    ${UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the hold">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the hold. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
-    <div class="gridwrap"><div class="axis"><span>Aft</span><span>Hold ${h}</span><span>Fwd</span></div><canvas id="hgrid"></canvas></div>
-    <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows (${ho.arrows.length})</button>` : `<button class="btn sm" data-act="fillHold">Fill with ${esc(code(UI.pod))}</button><button class="btn sm" data-act="clearHold">Clear hold</button>`}</div>
-    <div class="sec-h"><h2>Units in this hold</h2><b id="holdTot">${fmt(ho.entries.reduce((a, e) => a + num(e.units), 0))}</b></div>
+    ${UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
+    <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div><span class="muted">Two fingers: zoom and move</span></div>
+    <div class="dk-wrap"><svg id="dk" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button><button class="btn sm" data-act="clearHold">Clear Hold ${h}</button>`}</div>
+    <div class="sec-h"><h2>Units in Hold ${h}</h2><b id="holdTot">${fmt(ho.entries.reduce((a, e) => a + num(e.units), 0))}</b></div>
     <div id="entries">${entriesHtml(ho)}</div>
     <button class="btn" data-act="addEntry">${I.plus} Add units</button>
   </main>
   ${bottomNav()}`;
-  drawHoldGrid(); bindGrid();
+  drawHoldGrid(); bindDeck();
 }
 function entriesHtml(ho) {
   if (!ho.entries.length) return '<p class="muted">Paint the hold, then enter units and brand here.</p>';
@@ -607,102 +650,162 @@ function refreshHoldMeta() {
   const u = $('#undoBtn'); if (u) u.disabled = !UI.undo.length;
   const t = $('#holdTot'); if (t) t.textContent = fmt(ho.entries.reduce((a, e) => a + num(e.units), 0));
 }
-function drawHoldGrid() {
-  const cv = $('#hgrid'); if (!cv) return;
-  const w = cv.parentElement.clientWidth, h = Math.round(w * GR / GC);
-  const ctx = setupCanvas(cv, w, h), T = cssTheme(), ho = getHold(UI.deck, UI.hold, true), cw = w / GC, ch = h / GR;
-  ctx.fillStyle = T.cell; ctx.fillRect(0, 0, w, h);
-  ho.cells.forEach((v, n) => { if (!v) return; ctx.fillStyle = colorOf(v); ctx.fillRect((n % GC) * cw, Math.floor(n / GC) * ch, cw + 0.5, ch + 0.5); });
-  ctx.strokeStyle = T.line; ctx.globalAlpha = 0.35; ctx.lineWidth = 1;
-  for (let i = 1; i < GC; i++) { ctx.beginPath(); ctx.moveTo(Math.round(i * cw) + 0.5, 0); ctx.lineTo(Math.round(i * cw) + 0.5, h); ctx.stroke(); }
-  for (let i = 1; i < GR; i++) { ctx.beginPath(); ctx.moveTo(0, Math.round(i * ch) + 0.5); ctx.lineTo(w, Math.round(i * ch) + 0.5); ctx.stroke(); }
-  ctx.globalAlpha = 1; ctx.lineWidth = 2; ctx.strokeRect(1, 1, w - 2, h - 2);
-  const aw = Math.max(3, w / 110);
-  ho.arrows.forEach(r => drawArrow(ctx, r[0] * w, r[1] * h, r[2] * w, r[3] * h, aw));
-  const bs = Math.max(18, w / GC * 1.1);
-  ho.evs.forEach(v => drawBolt(ctx, v[0] * w, v[1] * h, bs));
-  if (UI.evTmp) { ctx.globalAlpha = 0.55; drawBolt(ctx, UI.evTmp[0] * w, UI.evTmp[1] * h, bs); ctx.globalAlpha = 1; }
-  if (UI.arrowTmp) { const r = UI.arrowTmp; ctx.globalAlpha = 0.6; drawArrow(ctx, r[0] * w, r[1] * h, r[2] * w, r[3] * h, aw); ctx.globalAlpha = 1; }
+/* ---------- Deck picture editor (all decks except 5) ---------- */
+function dkVB() {
+  const g = DECKPIC[UI.deck];
+  if (UI.dv.vb && UI.dv.deck === UI.deck) return UI.dv.vb;
+  if (UI.dv.all) return { x: 0, y: 0, w: g.w, h: g.h };
+  const z = deckHolds(UI.deck).find(q => q.h === UI.hold) || deckHolds(UI.deck)[0], pad = (z.x1 - z.x0) * 0.04;
+  return { x: z.x0 - pad, y: 0, w: z.x1 - z.x0 + 2 * pad, h: g.h };
 }
-function pushUndo() { const ho = getHold(UI.deck, UI.hold, true); UI.undo.push({ cells: ho.cells.slice(), arrows: ho.arrows.map(a => a.slice()), evs: ho.evs.map(a => a.slice()) }); if (UI.undo.length > 40) UI.undo.shift(); }
-function bindGrid() {
-  const cv = $('#hgrid'); if (!cv) return;
-  let painting = false, last = null;
-  const ho = getHold(UI.deck, UI.hold, true);
-  const at = e => { const r = cv.getBoundingClientRect(); return { x: clamp(Math.floor((e.clientX - r.left) / r.width * GC), 0, GC - 1), y: clamp(Math.floor((e.clientY - r.top) / r.height * GR), 0, GR - 1) }; };
-  const apply = c => { ho.cells[c.y * GC + c.x] = UI.mode === 'paint' ? UI.pod : null; };
-  const line = (a, b) => { const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) || 1; const out = []; for (let i = 0; i <= n; i++) out.push({ x: Math.round(a.x + (b.x - a.x) * i / n), y: Math.round(a.y + (b.y - a.y) * i / n) }); return out; };
-  const frac = e => { const r = cv.getBoundingClientRect(); return [clamp((e.clientX - r.left) / r.width, 0, 1), clamp((e.clientY - r.top) / r.height, 0, 1)]; };
-  let arrowStart = null;
-  const arrowMode = () => UI.mode === 'arrow';
-  cv.addEventListener('pointerdown', e => {
-    if (!arrowMode()) return; e.preventDefault(); cv.setPointerCapture(e.pointerId); arrowStart = frac(e); UI.arrowTmp = null;
+function dkClamp(v) {
+  const g = DECKPIC[UI.deck], r = { ...v };
+  r.x = r.w >= g.w ? (g.w - r.w) / 2 : clamp(r.x, 0, g.w - r.w);
+  r.y = r.h >= g.h ? (g.h - r.h) / 2 : clamp(r.y, 0, g.h - r.h);
+  return r;
+}
+function dkApply(v) { UI.dv.vb = v; UI.dv.deck = UI.deck; const svg = $('#dk'); if (svg) svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`); }
+function dkUpp() { const svg = $('#dk'), v = dkVB(); return svg && svg.clientWidth ? Math.max(v.w / svg.clientWidth, v.h / (svg.clientHeight || 1)) : 1; }
+function dkCellsSvg(d) {
+  const g = DECKPIC[d]; let out = '';
+  deckHolds(d).forEach(z => {
+    const o = ship().holds[d + '-' + z.h]; if (!o) return;
+    const cw = (z.x1 - z.x0) / GC, ch = g.h / GR;
+    for (let r = 0; r < GR; r++) {
+      let c = 0;
+      while (c < GC) {
+        const v = o.cells[r * GC + c]; let e = c + 1;
+        while (e < GC && o.cells[r * GC + e] === v) e++;
+        if (v) out += `<rect x="${(z.x0 + c * cw).toFixed(2)}" y="${(r * ch).toFixed(2)}" width="${((e - c) * cw + 0.3).toFixed(2)}" height="${(ch + 0.3).toFixed(2)}" fill="${colorOf(v)}"/>`;
+        c = e;
+      }
+    }
   });
-  cv.addEventListener('pointermove', e => {
-    if (!arrowMode() || !arrowStart) return; const p = frac(e); UI.arrowTmp = [arrowStart[0], arrowStart[1], p[0], p[1]]; drawHoldGrid();
+  return out;
+}
+function arrowSvg(x1, y1, x2, y2, u) {
+  const a = Math.atan2(y2 - y1, x2 - x1), hl = 13 * u, bx = x2 - Math.cos(a) * hl * 0.7, by = y2 - Math.sin(a) * hl * 0.7;
+  const p = [[x2, y2], [x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)], [x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)]].map(q => q.map(n => n.toFixed(2)).join(',')).join(' ');
+  return `<g class="arw"><line x1="${x1}" y1="${y1}" x2="${bx}" y2="${by}" stroke="#fff" stroke-width="7" stroke-linecap="round"/><polygon points="${p}" fill="#fff" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><line x1="${x1}" y1="${y1}" x2="${bx}" y2="${by}" stroke="#0e2036" stroke-width="3.5" stroke-linecap="round"/><polygon points="${p}" fill="#0e2036"/></g>`;
+}
+function dkMarksSvg(d) {
+  const g = DECKPIC[d], u = dkUpp(); let out = '';
+  deckHolds(d).forEach(z => {
+    const o = ship().holds[d + '-' + z.h]; if (!o) return; const W = z.x1 - z.x0;
+    (o.arrows || []).forEach(r => { out += arrowSvg(z.x0 + r[0] * W, r[1] * g.h, z.x0 + r[2] * W, r[3] * g.h, u); });
+    (o.evs || []).forEach(v => { out += boltSvg(z.x0 + v[0] * W, v[1] * g.h, 24 * u); });
   });
-  const arrowEnd = e => {
-    if (!arrowMode() || !arrowStart) return;
-    const p = frac(e), r = cv.getBoundingClientRect(), s0 = arrowStart; arrowStart = null; UI.arrowTmp = null;
-    const lenPx = Math.hypot((p[0] - s0[0]) * r.width, (p[1] - s0[1]) * r.height);
-    if (lenPx < 14) {
-      // tap: remove the nearest arrow within reach
-      const px = s0[0] * r.width, py = s0[1] * r.height; let best = -1, bd = 22;
-      ho.arrows.forEach((a, i) => {
-        const ax = a[0] * r.width, ay = a[1] * r.height, bx = a[2] * r.width, by = a[3] * r.height, dx = bx - ax, dy = by - ay;
-        const t = clamp(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1), 0, 1), d = Math.hypot(px - ax - t * dx, py - ay - t * dy);
-        if (d < bd) { bd = d; best = i; }
-      });
-      if (best >= 0) { pushUndo(); ho.arrows.splice(best, 1); save(); toast('Arrow removed.'); rerender(); } else drawHoldGrid();
+  return out;
+}
+function drawHoldGrid() {
+  const svg = $('#dk'); if (!svg) return; const d = UI.deck, g = DECKPIC[d], v = dkVB();
+  svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+  const cur = deckHolds(d).find(q => q.h === UI.hold);
+  svg.innerHTML = `<image href="deck${d}.png" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/>
+    <g opacity=".72">${dkCellsSvg(d)}</g>
+    ${cur ? `<rect x="${cur.x0}" y="0.5" width="${cur.x1 - cur.x0}" height="${g.h - 1}" class="curhold"/>` : ''}
+    ${deckHolds(d).map(z => `<text x="${(z.x0 + z.x1) / 2}" y="${12 * dkUpp() + 2}" font-size="${11 * dkUpp()}" class="dk-lbl" text-anchor="middle">Hold ${z.h}</text>`).join('')}
+    <g id="dkMarks">${dkMarksSvg(d)}</g>
+    ${UI.evTmp ? `<g opacity=".55">${boltSvg(UI.evTmp[0], UI.evTmp[1], 24 * dkUpp())}</g>` : ''}
+    <g id="dkTmp"></g>`;
+}
+function pushUndo() { const ho = getHold(UI.deck, UI.hold, true); UI.undo.push({ cells: ho.cells.slice(), pols: ho.pols.slice(), arrows: ho.arrows.map(a => a.slice()), evs: ho.evs.map(a => a.slice()) }); if (UI.undo.length > 40) UI.undo.shift(); }
+function bindDeck() {
+  const svg = $('#dk'); if (!svg) return;
+  const d = UI.deck, g = DECKPIC[d], sh = ship();
+  const touches = new Map(); let act = null, pinch = null, blocked = false;
+  const pt = (x, y) => { const p = svg.createSVGPoint(); p.x = x; p.y = y; const q = p.matrixTransform(svg.getScreenCTM().inverse()); return [q.x, q.y]; };
+  const holdAt = x => deckHolds(d).find(z => x >= z.x0 && x < z.x1) || (x < 0 ? deckHolds(d)[0] : deckHolds(d).at(-1));
+  const frac = (z, p) => [clamp((p[0] - z.x0) / (z.x1 - z.x0), 0, 1), clamp(p[1] / g.h, 0, 1)];
+  const cellOf = (z, p) => ({ x: clamp(Math.floor((p[0] - z.x0) / (z.x1 - z.x0) * GC), 0, GC - 1), y: clamp(Math.floor(p[1] / g.h * GR), 0, GR - 1) });
+  const line = (a, b) => { const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) || 1, o = []; for (let i = 0; i <= n; i++) o.push({ x: Math.round(a.x + (b.x - a.x) * i / n), y: Math.round(a.y + (b.y - a.y) * i / n) }); return o; };
+  const switchHold = z => { if (z.h !== UI.hold) { UI.hold = z.h; UI.undo = []; return true; } return false; };
+  const redrawCells = () => { const c = svg.querySelector('g[opacity]'); if (c) c.innerHTML = dkCellsSvg(d); };
+  const cancel = () => {
+    if (act && (act.k === 'paint') && act.snap) { const ho = getHold(d, act.z.h, true); ho.cells = act.snap.cells; ho.pols = act.snap.pols; UI.undo.pop(); }
+    if (act && act.k === 'evmove' && act.moved) { UI.undo.pop(); }
+    act = null; UI.evTmp = null; drawHoldGrid();
+  };
+  svg.onpointerdown = e => {
+    e.preventDefault(); svg.setPointerCapture(e.pointerId); touches.set(e.pointerId, [e.clientX, e.clientY]);
+    if (touches.size === 2) {
+      cancel();
+      const [a, b] = [...touches.values()], mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      pinch = { d0: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, vb0: { ...dkVB() }, anchor: pt(mid[0], mid[1]) };
       return;
     }
-    pushUndo(); ho.arrows.push([s0[0], s0[1], p[0], p[1]]); save(); rerender();
+    if (touches.size > 2 || blocked) return;
+    const p = pt(e.clientX, e.clientY), z = holdAt(p[0]);
+    const switched = switchHold(z), ho = getHold(d, z.h, true);
+    if (UI.mode === 'paint' || UI.mode === 'erase') {
+      if (UI.mode === 'paint' && !UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
+      pushUndo(); const c = cellOf(z, p);
+      act = { k: 'paint', z, last: c, switched, snap: { cells: UI.undo.at(-1).cells, pols: UI.undo.at(-1).pols } };
+      paintCell(ho, c); redrawCells();
+    } else if (UI.mode === 'arrow') act = { k: 'arrow', z, a: p, switched };
+    else if (UI.mode === 'ev') {
+      const u = dkUpp(); let best = -1, bd = 22 * u;
+      ho.evs.forEach((v, i) => { const dd = Math.hypot(z.x0 + v[0] * (z.x1 - z.x0) - p[0], v[1] * g.h - p[1]); if (dd < bd) { bd = dd; best = i; } });
+      act = { k: best >= 0 ? 'evmove' : 'evnew', z, i: best, a: p, c: [e.clientX, e.clientY], moved: false, switched };
+    }
   };
-  cv.addEventListener('pointerup', arrowEnd); cv.addEventListener('pointercancel', arrowEnd);
-  // EV marks: tap to add, drag to move, tap a mark to remove
-  const evMode = () => UI.mode === 'ev';
-  let evDrag = null;
-  const nearEv = (p, r) => { let best = -1, bd = 20; ho.evs.forEach((v, i) => { const d = Math.hypot((v[0] - p[0]) * r.width, (v[1] - p[1]) * r.height); if (d < bd) { bd = d; best = i; } }); return best; };
-  cv.addEventListener('pointerdown', e => {
-    if (!evMode()) return; e.preventDefault(); cv.setPointerCapture(e.pointerId);
-    const p = frac(e), r = cv.getBoundingClientRect(), i = nearEv(p, r);
-    evDrag = { i, start: p, moved: false };
-  });
-  cv.addEventListener('pointermove', e => {
-    if (!evMode() || !evDrag || evDrag.i < 0) return;
-    const p = frac(e), r = cv.getBoundingClientRect();
-    if (!evDrag.moved && Math.hypot((p[0] - evDrag.start[0]) * r.width, (p[1] - evDrag.start[1]) * r.height) > 6) { evDrag.moved = true; pushUndo(); }
-    if (evDrag.moved) { ho.evs[evDrag.i] = p; drawHoldGrid(); }
-  });
-  const evEnd = e => {
-    if (!evMode() || !evDrag) return; const d = evDrag; evDrag = null;
-    if (d.i >= 0 && d.moved) { save(); return; }
-    pushUndo();
-    if (d.i >= 0) { ho.evs.splice(d.i, 1); toast('EV mark removed. Undo restores it.'); }
-    else ho.evs.push(d.start);
-    save(); rerender();
+  svg.onpointermove = e => {
+    if (!touches.has(e.pointerId)) return; touches.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pinch && touches.size >= 2) {
+      const [a, b] = [...touches.values()], mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], v0 = pinch.vb0;
+      const maxW = Math.min(g.w, g.h * v0.w / v0.h) * 1.0;
+      const w = clamp(v0.w * pinch.d0 / (Math.hypot(a[0] - b[0], a[1] - b[1]) || 1), 30, Math.max(maxW, 30)), h = w * v0.h / v0.w;
+      dkApply({ x: v0.x, y: v0.y, w, h }); const q = pt(mid[0], mid[1]);
+      dkApply(dkClamp({ x: v0.x + pinch.anchor[0] - q[0], y: v0.y + pinch.anchor[1] - q[1], w, h }));
+      return;
+    }
+    if (!act || blocked) return; const p = pt(e.clientX, e.clientY);
+    if (act.k === 'paint') { const ho = getHold(d, act.z.h, true), c = cellOf(act.z, p); line(act.last, c).forEach(q => paintCell(ho, q)); act.last = c; redrawCells(); }
+    else if (act.k === 'arrow') { act.b = p; $('#dkTmp').innerHTML = `<g opacity=".6">${arrowSvg(act.a[0], act.a[1], p[0], p[1], dkUpp())}</g>`; }
+    else if (act.k === 'evmove') {
+      if (!act.moved && Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 6) { act.moved = true; pushUndo(); }
+      if (act.moved) { const ho = getHold(d, act.z.h, true), f = frac(act.z, p); ho.evs[act.i] = [f[0], f[1], ho.evs[act.i][2] ?? null]; $('#dkMarks').innerHTML = dkMarksSvg(d); }
+    }
   };
-  cv.addEventListener('pointerup', evEnd); cv.addEventListener('pointercancel', evEnd);
-  // drag the bolt from the bar onto the hold
+  svg.onpointerup = svg.onpointercancel = e => {
+    touches.delete(e.pointerId);
+    if (pinch) { if (touches.size < 2) { pinch = null; blocked = touches.size > 0; drawHoldGrid(); } return; }
+    if (blocked) { if (!touches.size) blocked = false; return; }
+    if (!act) return; const A = act; act = null;
+    if (e.type === 'pointercancel') { drawHoldGrid(); return; }
+    const ho = getHold(d, A.z.h, true);
+    const finish = changed => { save(); if (A.switched || changed) rerender(); };
+    if (A.k === 'paint') { if (A.switched) rerender(); afterStroke(UI.mode); return; }
+    if (A.k === 'arrow') {
+      const b = A.b || A.a, lenPx = Math.hypot(b[0] - A.a[0], b[1] - A.a[1]) / dkUpp();
+      if (lenPx < 14) {
+        const u = dkUpp(), W = A.z.x1 - A.z.x0; let best = -1, bd = 22 * u;
+        ho.arrows.forEach((r, i) => { const ax = A.z.x0 + r[0] * W, ay = r[1] * g.h, bx = A.z.x0 + r[2] * W, by = r[3] * g.h, dx = bx - ax, dy = by - ay; const t = clamp(((A.a[0] - ax) * dx + (A.a[1] - ay) * dy) / (dx * dx + dy * dy || 1), 0, 1), dd = Math.hypot(A.a[0] - ax - t * dx, A.a[1] - ay - t * dy); if (dd < bd) { bd = dd; best = i; } });
+        if (best >= 0) { pushUndo(); ho.arrows.splice(best, 1); toast('Arrow removed.'); finish(true); } else if (A.switched) rerender(); else drawHoldGrid();
+        return;
+      }
+      pushUndo(); ho.arrows.push([...frac(A.z, A.a), ...frac(A.z, b)]); finish(true); return;
+    }
+    if (A.k === 'evmove') { if (A.moved) { finish(false); drawHoldGrid(); return; } pushUndo(); ho.evs.splice(A.i, 1); toast('EV mark removed. Undo restores it.'); finish(true); return; }
+    if (A.k === 'evnew') { if (Math.hypot(e.clientX - A.c[0], e.clientY - A.c[1]) > 10) { if (A.switched) rerender(); return; } pushUndo(); ho.evs.push([...frac(A.z, A.a), sh.activePol || null]); finish(true); }
+  };
+  // drag the bolt from the bar onto the deck
   const src = $('#evDrag');
   if (src) {
     let ghost = null;
-    const over = e => { const r = cv.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
+    const over = e => { const r = svg.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
     src.onpointerdown = e => { e.preventDefault(); src.setPointerCapture(e.pointerId); ghost = document.createElement('div'); ghost.className = 'ev-ghost'; ghost.innerHTML = BOLT_ICON; document.body.append(ghost); src.onpointermove(e); };
-    src.onpointermove = e => { if (!ghost) return; ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; UI.evTmp = over(e) ? frac(e) : null; drawHoldGrid(); };
+    src.onpointermove = e => { if (!ghost) return; ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; UI.evTmp = over(e) ? pt(e.clientX, e.clientY) : null; drawHoldGrid(); };
     src.onpointerup = src.onpointercancel = e => {
       if (!ghost) return; ghost.remove(); ghost = null; UI.evTmp = null;
-      if (e.type === 'pointerup' && over(e)) { pushUndo(); ho.evs.push(frac(e)); save(); rerender(); } else drawHoldGrid();
+      if (e.type === 'pointerup' && over(e)) {
+        const p = pt(e.clientX, e.clientY), z = holdAt(p[0]); switchHold(z); pushUndo();
+        getHold(d, z.h, true).evs.push([...frac(z, p), sh.activePol || null]); save(); rerender();
+      } else drawHoldGrid();
     };
   }
-  cv.onpointerdown = e => {
-    if (arrowMode() || evMode()) return;
-    if (UI.mode === 'paint' && !UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
-    e.preventDefault(); cv.setPointerCapture(e.pointerId); painting = true; pushUndo(); last = at(e); apply(last); drawHoldGrid();
-  };
-  cv.onpointermove = e => { if (!painting || arrowMode() || evMode()) return; const c = at(e); line(last, c).forEach(apply); last = c; drawHoldGrid(); };
-  cv.onpointerup = cv.onpointercancel = () => { if (!painting) return; painting = false; afterStroke(UI.mode); };
 }
+function paintCell(ho, c) { const i = c.y * GC + c.x; ho.cells[i] = UI.mode === 'paint' ? UI.pod : null; ho.pols[i] = UI.mode === 'paint' ? (ship().activePol || null) : null; }
 function afterStroke(mode) {
   const sh = ship(), ho = getHold(UI.deck, UI.hold, true), present = new Set(ho.cells.filter(Boolean));
   save(); refreshHoldMeta();
@@ -724,7 +827,7 @@ function afterStroke(mode) {
 /* =========================================================
    DECK 5 EDITOR
    ========================================================= */
-const D5TOOLS = [['select', 'Select'], ['rect', 'Rectangle'], ['free', 'Draw'], ['mafi', 'MAFI'], ['ev', 'EV']];
+const D5TOOLS = [['select', 'Select'], ['erase', 'Discharge'], ['rect', 'Rectangle'], ['free', 'Draw'], ['mafi', 'MAFI'], ['pkg', 'Package'], ['ev', 'EV']];
 function renderDeck5() {
   const sh = ship();
   if (!UI.pod || !P(UI.pod) || P(UI.pod).type === 'L') UI.pod = dischPorts()[0]?.id || null;
@@ -732,11 +835,13 @@ function renderDeck5() {
   <header class="top">
     <button class="ic" data-act="toShip" aria-label="Back to ship">${I.back}</button>
     <div class="ttl"><b>Deck 5, main deck</b><span>${UI.d5.zoom ? 'Hold ' + UI.d5.zoom : 'All holds'}${sh.activePol ? ', loading at ' + esc(code(sh.activePol)) : ''}</span></div>
+    <button class="ic" data-act="d5undo" id="d5Undo" aria-label="Undo" ${UI.d5undo.length ? '' : 'disabled'}>${I.undo}</button>
     <button class="ic danger" data-act="d5Del" id="d5Del" aria-label="Delete selected" ${UI.d5.sel ? '' : 'disabled'}>${I.bin}</button>
   </header>
   <p class="rotate-hint">Turn your iPhone sideways for a larger Deck 5.</p>
   <div class="d5-tools" id="d5Tools">${d5ToolsHtml()}</div>
   ${UI.d5.zoom ? `<div class="d5-height">${heightSelect(5, UI.d5.zoom)}</div>` : ''}
+  <div class="poly-bar" id="polyBar"></div>
   <div class="d5-wrap"><svg id="d5" xmlns="http://www.w3.org/2000/svg"></svg></div>
   <p class="hint d5-hint" id="d5Hint">${d5Hint()}</p>
   ${bottomNav()}`;
@@ -748,7 +853,7 @@ function d5ToolsHtml() {
   <div class="chips">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('')}</div>`;
 }
 function d5Hint() {
-  return ({ select: 'Pinch with two fingers to zoom, drag the empty deck to pan. Tap an item to edit, drag to move, drag the round handle to resize.', rect: 'Drag on the deck to draw a rectangle for units.', free: 'Draw a free shape with your finger.', mafi: 'Tap on the deck where the MAFI stands.', ev: 'Tap the exact spot of each electric vehicle. Use Select to move or delete.' })[UI.d5.tool];
+  return ({ select: 'Pinch with two fingers to zoom, drag the empty deck to pan. Tap an item to edit, drag to move, drag the round handle to resize.', rect: 'Drag on the deck to draw a rectangle for units.', free: 'Tap each corner of the shape. Straight lines join the corners. Tap the first corner or Finish to close it.', erase: 'Tap an item to discharge it (remove it from Deck 5). Undo brings it back.', mafi: 'Tap on the deck where the MAFI stands.', pkg: 'Tap on the deck where the package stands. Resize it with the round handle.', ev: 'Tap the exact spot of each electric vehicle. Use Select to move or delete.' })[UI.d5.tool];
 }
 function labelLines(s) {
   const pp = `${s.pod ? code(s.pod) : '?'}/${s.pol ? code(s.pol) : '?'}`;
@@ -758,6 +863,7 @@ function labelLines(s) {
     if (allEmpty) l.push('EMPTY'); else { const t = mafiTotals(s); l.push(`${fmt(t.pkgs)} PKGs`); }
     return l;
   }
+  if (s.type === 'pkg') { const l = [pp, `${fmt(num(s.pkgs))} PKG${num(s.pkgs) === 1 ? '' : 's'}`]; if (num(s.mt)) l.push(fmt(num(s.mt), 1) + ' MT'); if (s.label) l.push(s.label); return l; }
   const l = [pp]; if (num(s.units)) l.push(fmt(num(s.units)) + ' Uts'); if (s.label) l.push(s.label);
   return l;
 }
@@ -767,7 +873,9 @@ function wrapLines(lines, w, fs) {
   return out;
 }
 function fitLabel(s) {
-  const b = bbox(s), raw = labelLines(s); let fs = 14, lines;
+  const b0 = bbox(s), raw = labelLines(s); let fs = 14, lines;
+  const ix = s.type === 'pkg' ? Math.min(16, b0.h * 0.45, b0.w * 0.3) + 2 : 0;
+  const b = { x: b0.x + ix, y: b0.y, w: b0.w - ix, h: b0.h };
   let fit = false;
   for (; fs >= 3; fs -= 0.5) { lines = wrapLines(raw, b.w - Math.min(6, b.w * 0.1), fs); if (lines.length * fs * 1.15 <= b.h - Math.min(4, b.h * 0.1)) { fit = true; break; } }
   if (!fit) { // very small object: keep it readable on one line inside the box
@@ -775,19 +883,20 @@ function fitLabel(s) {
     lines = [t]; fs = Math.max(0.8, Math.min(b.h * 0.75, b.w / (t.length * 0.6)));
     if (fs < 2.5) { lines = [raw[0]]; fs = Math.max(0.8, Math.min(b.h * 0.75, b.w / (raw[0].length * 0.6))); }
   }
-  return { b, fs, lines };
+  return { b, fs, lines, cx: b.x + b.w / 2, box: b0 };
 }
 function shapeSvg(s) {
   if (s.type === 'ev') {
     const sel = UI.d5.sel === s.id;
     return `<g data-id="${s.id}"><rect x="${s.x - 4}" y="${s.y - 4}" width="${s.w + 8}" height="${s.h + 8}" fill="transparent"/>${boltSvg(s.x + s.w / 2, s.y + s.h / 2, s.w)}${sel ? `<rect x="${s.x - 4}" y="${s.y - 4}" width="${s.w + 8}" height="${s.h + 8}" fill="none" class="selbox"/>` : ''}</g>`;
   }
-  const c = colorOf(s.pod), tc = textOn(c), sel = UI.d5.sel === s.id, { b, fs, lines } = fitLabel(s);
+  const c = colorOf(s.pod), tc = textOn(c), sel = UI.d5.sel === s.id, { box: b, fs, lines, cx } = fitLabel(s);
   const body = s.type === 'free'
     ? `<path d="M${s.pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L')}Z" fill="${c}" fill-opacity=".8" stroke="#1d2b3f" stroke-width="1.3" stroke-linejoin="round"/>`
     : `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="2" fill="${c}" stroke="#1d2b3f" stroke-width="${s.type === 'mafi' ? 2.6 : 1.3}" ${s.type === 'mafi' && s.mafis.every(m => !m.loaded) ? 'stroke-dasharray="6 3"' : ''}/>`;
+  const icon = s.type === 'pkg' ? boxSvg(b.x + 1.5, b.y + 1.5, Math.min(16, b.h * 0.45, b.w * 0.3)) : '';
   const y0 = b.y + b.h / 2 - (lines.length - 1) * fs * 1.15 / 2;
-  const txt = `<text font-size="${fs}" fill="${tc}" text-anchor="middle" font-weight="700">${lines.map((l, i) => `<tspan x="${b.x + b.w / 2}" y="${y0 + i * fs * 1.15}" dominant-baseline="middle">${esc(l)}</tspan>`).join('')}</text>`;
+  const txt = icon + `<text font-size="${fs}" fill="${tc}" text-anchor="middle" font-weight="700">${lines.map((l, i) => `<tspan x="${cx}" y="${y0 + i * fs * 1.15}" dominant-baseline="middle">${esc(l)}</tspan>`).join('')}</text>`;
   const u = d5UnitsPerPx(), pad = 3 * u;
   const selBox = sel ? `<rect x="${b.x - pad}" y="${b.y - pad}" width="${b.w + 2 * pad}" height="${b.h + 2 * pad}" fill="none" class="selbox"/>${s.type !== 'free' ? `<circle cx="${b.x + b.w}" cy="${b.y + b.h}" r="${20 * u}" fill="transparent" data-hdl="1"/><circle cx="${b.x + b.w}" cy="${b.y + b.h}" r="${8 * u}" class="hdl" data-hdl="1"/>` : ''}` : '';
   return `<g data-id="${s.id}">${body}${txt}${selBox}</g>`;
@@ -819,13 +928,35 @@ function drawD5() {
     ${ship().deck5.shapes.map(shapeSvg).join('')}
     <g id="tmp"></g>`;
   const del = $('#d5Del'); if (del) del.disabled = !UI.d5.sel;
+  const un = $('#d5Undo'); if (un) un.disabled = !UI.d5undo.length;
+  polyDraw();
 }
 function svgPt(e) {
   const svg = $('#d5'), pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
   const p = pt.matrixTransform(svg.getScreenCTM().inverse()); return [clamp(p.x, 0, D5W), clamp(p.y, 0, D5H)];
 }
 function clientToD5(x, y) { const svg = $('#d5'), pt = svg.createSVGPoint(); pt.x = x; pt.y = y; const p = pt.matrixTransform(svg.getScreenCTM().inverse()); return [p.x, p.y]; }
-function setTool(t) { UI.d5.tool = t; $('#d5Tools').innerHTML = d5ToolsHtml(); $('#d5Hint').textContent = d5Hint(); }
+// Straight-line shape: corners are collected one tap at a time
+function polyDraw(cursor) {
+  const tmp = $('#tmp'), bar = $('#polyBar'), P = UI.d5.poly; if (!tmp) return;
+  const n = P ? P.length : 0;
+  if (bar) bar.innerHTML = UI.d5.tool !== 'free' ? '' : `<span><b>${n}</b> corner${n === 1 ? '' : 's'}</span>
+    <button class="btn sm" data-act="d5poly" data-v="undo" ${n ? '' : 'disabled'}>Undo corner</button>
+    <button class="btn sm" data-act="d5poly" data-v="cancel" ${n ? '' : 'disabled'}>Cancel</button>
+    <button class="btn sm primary" data-act="d5poly" data-v="finish" ${n < 3 ? 'disabled' : ''}>Finish shape</button>`;
+  if (!n) { tmp.innerHTML = ''; return; }
+  const u = d5UnitsPerPx(), pts = cursor ? [...P, cursor] : P, c = colorOf(UI.pod);
+  tmp.innerHTML = `${pts.length > 2 ? `<polygon points="${pts.map(q => q.join(',')).join(' ')}" fill="${c}" fill-opacity=".45" stroke="none"/>` : ''}
+    <polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" class="selbox"/>
+    ${P.map((q, i) => `<circle cx="${q[0]}" cy="${q[1]}" r="${(i === 0 ? 7 : 4.5) * u}" fill="${i === 0 ? 'var(--accent)' : '#0e2036'}" stroke="#fff" stroke-width="1.5"/>`).join('')}`;
+}
+function polyFinish() {
+  const P = UI.d5.poly, sh = ship(); if (!P || P.length < 3) return;
+  pushD5(); const s = { id: uid(), type: 'free', pts: P.map(q => [q[0], q[1]]), pod: UI.pod, pol: sh.activePol || '', units: '', label: '' };
+  sh.deck5.shapes.push(s); UI.d5.poly = null; polyDraw(); UI.d5.sel = s.id; save(); drawD5(); setTool('select'); openSheet(s);
+}
+function pushD5() { UI.d5undo.push(JSON.stringify(ship().deck5.shapes)); if (UI.d5undo.length > 40) UI.d5undo.shift(); }
+function setTool(t) { if (t !== 'free') UI.d5.poly = null; UI.d5.tool = t; $('#d5Tools').innerHTML = d5ToolsHtml(); $('#d5Hint').textContent = d5Hint(); polyDraw(); }
 function bindD5() {
   const svg = $('#d5'), sh = ship(); let drag = null, pinch = null, blocked = false;
   const touches = new Map();
@@ -834,8 +965,9 @@ function bindD5() {
   const cancelDrag = () => {
     if (!drag) return;
     if (drag.k === 'move' && drag.moved) Object.assign(drag.s, drag.o);
-    if (drag.k === 'resize') { drag.s.w = drag.w; drag.s.h = drag.h; }
-    drag = null; const t = $('#tmp'); if (t) t.innerHTML = ''; drawD5();
+    if (drag.k === 'resize') { drag.s.w = drag.w; drag.s.h = drag.h; UI.d5undo.pop(); }
+    if (drag.k === 'move' && drag.moved) UI.d5undo.pop();
+    drag = null; const t = $('#tmp'); if (t) t.innerHTML = ''; drawD5(); polyDraw();
   };
   svg.onpointerdown = e => {
     e.preventDefault(); svg.setPointerCapture(e.pointerId);
@@ -848,13 +980,14 @@ function bindD5() {
     }
     if (touches.size > 2 || blocked) return;
     const p = svgPt(e), t = UI.d5.tool;
-    if ((t === 'rect' || t === 'free' || t === 'mafi') && !UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
-    if (t === 'ev' || t === 'mafi') drag = { k: 'place', a: p, c: [e.clientX, e.clientY] };
+    if ((t === 'rect' || t === 'free' || t === 'mafi' || t === 'pkg') && !UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
+    if (t === 'ev' || t === 'mafi' || t === 'pkg') drag = { k: 'place', a: p, c: [e.clientX, e.clientY] };
+    else if (t === 'erase') { const g = e.target.closest('[data-id]'); drag = g ? { k: 'erase', s: shape(g.dataset.id), c: [e.clientX, e.clientY] } : { k: 'pan', c: [e.clientX, e.clientY], vb0: { ...d5VB() }, upp: 1 / svg.getScreenCTM().a, moved: false }; }
     else if (t === 'rect') drag = { k: 'new', a: p, b: p };
-    else if (t === 'free') drag = { k: 'free', pts: [p] };
+    else if (t === 'free') { drag = { k: 'free', p }; polyDraw(p); }
     else {
       const hdl = e.target.closest('[data-hdl]'), g = e.target.closest('[data-id]');
-      if (hdl && UI.d5.sel && shape(UI.d5.sel) && shape(UI.d5.sel).type !== 'ev') { const s = shape(UI.d5.sel); drag = { k: 'resize', s, a: p, w: s.w, h: s.h }; }
+      if (hdl && UI.d5.sel && shape(UI.d5.sel) && shape(UI.d5.sel).type !== 'ev') { const s = shape(UI.d5.sel); pushD5(); drag = { k: 'resize', s, a: p, w: s.w, h: s.h }; }
       else if (g) { const s = shape(g.dataset.id); UI.d5.sel = s.id; drag = { k: 'move', s, a: p, o: JSON.parse(JSON.stringify(s)), moved: false }; drawD5(); }
       else drag = { k: 'pan', c: [e.clientX, e.clientY], vb0: { ...d5VB() }, upp: 1 / svg.getScreenCTM().a, moved: false };
     }
@@ -877,11 +1010,12 @@ function bindD5() {
       if (Math.hypot(e.clientX - drag.c[0], e.clientY - drag.c[1]) > 4) drag.moved = true;
       if (drag.moved) applyVB(clampVB({ ...drag.vb0, x: drag.vb0.x - dx, y: drag.vb0.y - dy }));
     }
+    else if (drag.k === 'erase') { if (Math.hypot(e.clientX - drag.c[0], e.clientY - drag.c[1]) > 10) drag.moved = true; }
     else if (drag.k === 'place') { if (Math.hypot(e.clientX - drag.c[0], e.clientY - drag.c[1]) > 10) drag.moved = true; }
     else if (drag.k === 'new') { drag.b = p; const x = Math.min(drag.a[0], p[0]), y = Math.min(drag.a[1], p[1]); tmp.innerHTML = `<rect x="${x}" y="${y}" width="${Math.abs(p[0] - drag.a[0])}" height="${Math.abs(p[1] - drag.a[1])}" fill="${colorOf(UI.pod)}" fill-opacity=".6" class="selbox"/>`; }
-    else if (drag.k === 'free') { const l = drag.pts[drag.pts.length - 1]; if (Math.hypot(p[0] - l[0], p[1] - l[1]) > 3 * k()) drag.pts.push(p); tmp.innerHTML = `<path d="M${drag.pts.map(q => q.join(',')).join('L')}" fill="${colorOf(UI.pod)}" fill-opacity=".5" class="selbox"/>`; }
+    else if (drag.k === 'free') { drag.p = p; polyDraw(p); }
     else if (drag.k === 'move') {
-      const dx = p[0] - drag.a[0], dy = p[1] - drag.a[1]; if (Math.hypot(dx, dy) > 3 * k()) drag.moved = true; if (!drag.moved) return;
+      const dx = p[0] - drag.a[0], dy = p[1] - drag.a[1]; if (!drag.moved && Math.hypot(dx, dy) > 3 * k()) { drag.moved = true; pushD5(); } if (!drag.moved) return;
       const s = drag.s, o = drag.o;
       if (s.type === 'free') s.pts = o.pts.map(q => [clamp(q[0] + dx, 0, D5W), clamp(q[1] + dy, 0, D5H)]);
       else { s.x = clamp(o.x + dx, 0, D5W - s.w); s.y = clamp(o.y + dy, 0, D5H - s.h); }
@@ -895,11 +1029,20 @@ function bindD5() {
     if (!drag) return; const d = drag; drag = null;
     if (e.type === 'pointercancel') { const t = $('#tmp'); if (t) t.innerHTML = ''; return; }
     if (d.k === 'pan') { if (!d.moved) { UI.d5.sel = null; drawD5(); } }
+    else if (d.k === 'erase' && !d.moved) {
+      const s = d.s, what = s.type === 'ev' ? 'this EV mark' : s.type === 'mafi' ? `${code(s.pod)}/${code(s.pol)} ${s.mafis.length > 1 ? 'MAFI stack (' + s.mafis.length + ')' : ('MAFI ' + (s.mafis[0].no || '')).trim()}` : s.type === 'pkg' ? `${code(s.pod)}/${code(s.pol)} package (${fmt(num(s.pkgs))} PKGs)` : `${code(s.pod)}/${code(s.pol)}${num(s.units) ? ' ' + fmt(num(s.units)) + ' units' : ''}${s.label ? ' ' + s.label : ''}`;
+      UI.d5.sel = s.id; drawD5();
+      confirmBox(`Discharge ${what}?`, 'Discharge').then(ok => { if (ok) { pushD5(); sh.deck5.shapes = sh.deck5.shapes.filter(x => x.id !== s.id); toast('Discharged. Undo brings it back.'); save(); } UI.d5.sel = null; drawD5(); });
+    }
     else if (d.k === 'place' && !d.moved) {
       const p = d.a;
+      pushD5();
       if (UI.d5.tool === 'ev') {
-        const s = { id: uid(), type: 'ev', x: clamp(p[0] - 13, 0, D5W - 26), y: clamp(p[1] - 13, 0, D5H - 26), w: 26, h: 26 };
+        const s = { id: uid(), type: 'ev', x: clamp(p[0] - 13, 0, D5W - 26), y: clamp(p[1] - 13, 0, D5H - 26), w: 26, h: 26, pol: sh.activePol || null };
         sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5();
+      } else if (UI.d5.tool === 'pkg') {
+        const s = { id: uid(), type: 'pkg', x: clamp(p[0] - 25, 0, D5W - 50), y: clamp(p[1] - 15, 0, D5H - 30), w: 50, h: 30, pod: UI.pod, pol: sh.activePol || '', pkgs: '1', mt: '', label: '' };
+        sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5(); setTool('select'); openSheet(s);
       } else {
         const s = { id: uid(), type: 'mafi', x: clamp(p[0] - 40, 0, D5W - 80), y: clamp(p[1] - 18, 0, D5H - 36), w: 80, h: 36, pod: UI.pod, pol: sh.activePol || '', mafis: [{ no: '', loaded: true, pkgs: '', mt: '', tara: '' }] };
         sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5(); setTool('select'); openSheet(s);
@@ -909,13 +1052,14 @@ function bindD5() {
       const x = Math.min(d.a[0], d.b[0]), y = Math.min(d.a[1], d.b[1]), w = Math.abs(d.b[0] - d.a[0]), h = Math.abs(d.b[1] - d.a[1]);
       $('#tmp').innerHTML = '';
       if (w < 12 * k() || h < 8 * k()) { toast('Drag to draw a bigger rectangle, or zoom in for small objects.'); return; }
-      const s = { id: uid(), type: 'rect', x, y, w, h, pod: UI.pod, pol: sh.activePol || '', units: '', label: '' };
+      pushD5(); const s = { id: uid(), type: 'rect', x, y, w, h, pod: UI.pod, pol: sh.activePol || '', units: '', label: '' };
       sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5(); setTool('select'); openSheet(s);
     } else if (d.k === 'free') {
-      $('#tmp').innerHTML = '';
-      if (d.pts.length < 4) return;
-      const s = { id: uid(), type: 'free', pts: d.pts.filter((q, i) => i % 2 === 0 || i === d.pts.length - 1), pod: UI.pod, pol: sh.activePol || '', units: '', label: '' };
-      sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5(); setTool('select'); openSheet(s);
+      // the finger can be dragged before lifting to place the corner precisely
+      const P = (UI.d5.poly ||= []), p = d.p, u = d5UnitsPerPx();
+      if (P.length >= 3 && Math.hypot(p[0] - P[0][0], p[1] - P[0][1]) < 16 * u) { polyFinish(); return; }
+      if (!P.length || Math.hypot(p[0] - P.at(-1)[0], p[1] - P.at(-1)[1]) > 3 * u) P.push(p);
+      polyDraw();
     } else if (d.k === 'move') { if (!d.moved) openSheet(d.s); else save(); }
     else if (d.k === 'resize') save();
   };
@@ -927,6 +1071,10 @@ function sheetBody(s) {
       <label class="fld"><span>POD</span><select data-sb="pod">${portOpts(dischPorts(), s.pod)}</select></label>
       <label class="fld"><span>POL</span><select data-sb="pol"><option value="">Select</option>${portOpts(loadPorts(), s.pol)}</select></label>
     </div><p class="muted">In Hold ${hold} (set by position on deck)</p>`;
+  if (s.type === 'pkg') return top + `
+    <div class="grid2"><label class="fld"><span>PKGs</span><input data-sb="pkgs" inputmode="numeric" value="${esc(s.pkgs)}"></label>
+    <label class="fld"><span>MT</span><input data-sb="mt" inputmode="decimal" value="${esc(s.mt)}"></label></div>
+    <label class="fld"><span>Description</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. Transformer, boat, crate"></label>`;
   if (s.type !== 'mafi') return top + `
     <label class="fld"><span>Units</span><input data-sb="units" inputmode="numeric" value="${esc(s.units)}"></label>
     <label class="fld"><span>Model and maker</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. 1 Ut FUSO TRUCK"></label>`;
@@ -943,7 +1091,7 @@ function sheetBody(s) {
 function openSheet(s) {
   document.querySelector('.sheet-ov')?.remove();
   const ov = document.createElement('div'); ov.className = 'sheet-ov';
-  const title = s.type === 'ev' ? 'EV mark' : s.type === 'mafi' ? (s.mafis.length > 1 ? 'MAFI stack' : 'MAFI') : s.type === 'rect' ? 'Units block' : 'Free shape';
+  const title = s.type === 'ev' ? 'EV mark' : s.type === 'pkg' ? 'Package' : s.type === 'mafi' ? (s.mafis.length > 1 ? 'MAFI stack' : 'MAFI') : s.type === 'rect' ? 'Units block' : 'Free shape';
   ov.innerHTML = `<div class="sheet" role="dialog"><div class="sheet-h"><b>${title}</b><button class="btn sm danger" data-sa="del">Delete</button><button class="btn sm primary" data-sa="close">Done</button></div><div class="sheet-b">${sheetBody(s)}</div></div>`;
   document.body.append(ov);
   const body = $('.sheet-b', ov), rebuild = () => { body.innerHTML = sheetBody(s); $('.sheet-h b', ov).textContent = s.type === 'mafi' ? (s.mafis.length > 1 ? 'MAFI stack' : 'MAFI') : title; };
@@ -959,7 +1107,7 @@ function openSheet(s) {
     if (e.target === ov) return close();
     const b = e.target.closest('[data-sa]'); if (!b) return; const a = b.dataset.sa;
     if (a === 'close') close();
-    else if (a === 'del') { ov.remove(); if (await confirmBox('Delete this item from Deck 5?')) { ship().deck5.shapes = ship().deck5.shapes.filter(x => x.id !== s.id); UI.d5.sel = null; save(); } drawD5(); }
+    else if (a === 'del') { ov.remove(); if (await confirmBox('Delete this item from Deck 5?')) { pushD5(); ship().deck5.shapes = ship().deck5.shapes.filter(x => x.id !== s.id); UI.d5.sel = null; save(); } drawD5(); }
     else if (a === 'addMafi') { const last = s.mafis[s.mafis.length - 1]; s.mafis.push({ no: '', loaded: last ? last.loaded : false, pkgs: '', mt: '', tara: '' }); rebuild(); drawD5(); save(); }
     else if (a === 'rmMafi') { s.mafis.splice(+b.dataset.i, 1); rebuild(); drawD5(); save(); }
     else if (a === 'loaded') { s.mafis[+b.dataset.i].loaded = b.dataset.v === '1'; rebuild(); drawD5(); save(); }
@@ -967,8 +1115,9 @@ function openSheet(s) {
 }
 
 /* Deck 5 canvas renderer (schematic + PDF) */
-function drawD5Shapes(ctx, sh, labels) {
+function drawD5Shapes(ctx, sh, labels, pol) {
   for (const s of sh.deck5.shapes) {
+    if (pol && s.pol !== pol) continue;
     if (s.type === 'ev') { if (labels) drawBolt(ctx, s.x + s.w / 2, s.y + s.h / 2, s.w); continue; }
     const p = sh.ports.find(q => q.id === s.pod), c = (p && p.color) || '#cfd8e3';
     ctx.fillStyle = c; ctx.strokeStyle = '#1d2b3f'; ctx.lineWidth = s.type === 'mafi' ? 2.6 : 1.3;
@@ -977,17 +1126,20 @@ function drawD5Shapes(ctx, sh, labels) {
     else { ctx.rect(s.x, s.y, s.w, s.h); ctx.fill(); }
     ctx.setLineDash(s.type === 'mafi' && s.mafis.every(m => !m.loaded) ? [6, 3] : []); ctx.stroke(); ctx.setLineDash([]);
     if (labels) {
-      const { b, fs, lines } = fitLabel(s);
+      const { box: b, fs, lines, cx } = fitLabel(s);
+      if (s.type === 'pkg') drawBox(ctx, b.x + 1.5, b.y + 1.5, Math.min(16, b.h * 0.45, b.w * 0.3));
       ctx.fillStyle = textOn(c); ctx.font = `700 ${fs}px Helvetica,Arial,sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const y0 = b.y + b.h / 2 - (lines.length - 1) * fs * 1.15 / 2;
-      lines.forEach((l, i) => ctx.fillText(l, b.x + b.w / 2, y0 + i * fs * 1.15));
+      lines.forEach((l, i) => ctx.fillText(l, cx, y0 + i * fs * 1.15));
     }
   }
 }
-function drawD5Canvas(ctx, W, H, sh) {
-  const k = W / D5W; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.save(); ctx.scale(k, H / D5H);
+// o.x0/o.x1: part of the deck to draw (default whole deck); o.pol: only cargo loaded at that port
+function drawD5Canvas(ctx, W, H, sh, o = {}) {
+  const x0 = o.x0 ?? 0, x1 = o.x1 ?? D5W;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.save(); ctx.scale(W / (x1 - x0), H / D5H); ctx.translate(-x0, 0);
   if (D5IMG.complete && D5IMG.naturalWidth) ctx.drawImage(D5IMG, 0, 0, D5W, D5H);
-  drawD5Shapes(ctx, sh, true); ctx.restore();
+  drawD5Shapes(ctx, sh, true, o.pol); ctx.restore();
 }
 
 /* =========================================================
@@ -1003,69 +1155,139 @@ async function ensurePdfLib() {
   if (!window.jspdf) throw new Error('PDF library file jspdf.umd.min.js is missing on the website. Upload all files again.');
   if (!window.autoTable && !(window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable)) throw new Error('PDF table file jspdf.plugin.autotable.min.js is missing on the website. Upload all files again.');
 }
-async function buildPdf() {
+// Shared PDF setup: A4 landscape, header, table styles
+async function pdfKit() {
   await ensurePdfLib();
   const sh = ship(), { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const AT = o => (window.autoTable ? window.autoTable(doc, o) : doc.autoTable(o));
-  const rows = cargoRows(sh), dep = P(sh.activePol), depName = dep ? dep.name : '-';
+  const dep = P(sh.activePol), depName = dep ? dep.name : '-';
   const dstr = sh.depDate ? new Date(sh.depDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-  const fill = id => hexRgb(colorOf(id));
   const header = title => {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text(`M/V "${sh.name.toUpperCase()}"`, 10, 11);
-    doc.setFontSize(13); doc.text(title, 148.5, 11, { align: 'center' });
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(`Voyage: ${sh.voyage || '-'}   Departure: ${depName}   Date: ${dstr}`, 287, 11, { align: 'right' });
-    doc.setFontSize(7.5); doc.text(rotation(sh), 10, 16);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text(`M/V "${sh.name.toUpperCase()}"`, 10, 10);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(`Voyage: ${sh.voyage || '-'}   Departure: ${depName}   Date: ${dstr}`, 287, 10, { align: 'right' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text(title, 148.5, 16.5, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.text(rotation(sh), 10, 21);
   };
   const base = { theme: 'grid', styles: { fontSize: 7.5, cellPadding: 0.9, lineColor: [120, 135, 155], lineWidth: 0.1, textColor: [14, 32, 54] }, headStyles: { fillColor: [21, 35, 58], textColor: 255, fontStyle: 'bold' }, footStyles: { fillColor: [226, 232, 240], textColor: [14, 32, 54], fontStyle: 'bold' }, margin: { left: 10, right: 10 } };
-  const podCell = id => ({ content: code(id), styles: { fillColor: fill(id), textColor: textOn(colorOf(id)) === '#ffffff' ? 255 : [14, 32, 54], fontStyle: 'bold' } });
-  const pods = [...new Set(rows.map(r => r.pod))].sort((a, b) => sh.ports.findIndex(p => p.id === a) - sh.ports.findIndex(p => p.id === b));
-  const tot = sumRows(rows);
-
-  // Page 1: stowage plan
-  header('CARGO STOWAGE PLAN');
-  AT({ ...base, startY: 19, tableWidth: 180, head: [['POD', 'Hold 4', 'Hold 3', 'Hold 2', 'Hold 1', 'Units', 'PKGs', 'MT statics']],
-    body: pods.map(pod => { const m = rows.filter(r => r.pod === pod), a = sumRows(m); return [podCell(pod), ...[4, 3, 2, 1].map(h => fmt(m.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(a.units), fmt(a.pkgs), fmt(a.mt, 1)]; }),
+  const podCell = id => ({ content: code(id), styles: { fillColor: hexRgb(colorOf(id)), textColor: textOn(colorOf(id)) === '#ffffff' ? 255 : [14, 32, 54], fontStyle: 'bold' } });
+  const sortPods = list => [...new Set(list)].sort((a, b) => sh.ports.findIndex(p => p.id === a) - sh.ports.findIndex(p => p.id === b));
+  const footer = () => { const n = doc.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7); doc.setTextColor(110); doc.text(`Page ${i} of ${n}   Created ${new Date().toLocaleString('en-GB')}`, 287, 205, { align: 'right' }); doc.setTextColor(0); } };
+  const dd = sh.depDate ? new Date(sh.depDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-') : 'nodate';
+  const fileBase = `${sh.short || 'SHIP'}-%_Dep_${depName.replace(/[^A-Za-z0-9]+/g, '_')}_${dd}_VOY_${(sh.voyage || '').replace(/[^A-Za-z0-9]+/g, '') || 'NA'}.pdf`;
+  const img = (cv, x, y, maxW, maxH) => { const r = cv.width / cv.height; let w = maxW, h = w / r; if (h > maxH) { h = maxH; w = h * r; } doc.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', x + (maxW - w) / 2, y, w, h); return h; };
+  try { await D5IMG.decode(); } catch (e) { }
+  return { sh, doc, AT, dep, depName, header, base, podCell, sortPods, footer, fileBase, img };
+}
+// POD x hold table + coloured ship schematic; pol = only cargo loaded at that port
+function stowagePage(K, title, pol) {
+  const { sh, doc, AT, header, base, podCell, sortPods, img } = K;
+  const rows = cargoRows(sh).filter(r => !pol || r.pol === pol), pods = sortPods(rows.map(r => r.pod)), tot = sumRows(rows);
+  header(title);
+  AT({ ...base, startY: 24, tableWidth: 180, head: [['POD', 'Hold 4', 'Hold 3', 'Hold 2', 'Hold 1', 'Units', 'PKGs', 'MT statics']],
+    body: pods.length ? pods.map(pod => { const m = rows.filter(r => r.pod === pod), a = sumRows(m); return [podCell(pod), ...[4, 3, 2, 1].map(h => fmt(m.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(a.units), fmt(a.pkgs), fmt(a.mt, 1)]; }) : [['No cargo', '', '', '', '', '', '', '']],
     foot: [['Total', ...[4, 3, 2, 1].map(h => fmt(rows.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(tot.units), fmt(tot.pkgs), fmt(tot.mt, 1)]] });
-  let y = doc.lastAutoTable.finalY + 3; const ih = 210 - y - 7, iw = Math.min(277, ih * 1.5);
-  const cv = document.createElement('canvas'); cv.width = 2000; cv.height = Math.round(2000 * ih / iw);
-  drawShip(cv.getContext('2d'), cv.width, cv.height, sh, LIGHT);
-  doc.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', 10 + (277 - iw) / 2, y, iw, ih);
+  const y = doc.lastAutoTable.finalY + 3, ih = 210 - y - 7;
+  const cv = document.createElement('canvas'); cv.width = 2000; cv.height = Math.round(2000 * ih / Math.min(277, ih * 1.5));
+  drawShip(cv.getContext('2d'), cv.width, cv.height, sh, LIGHT, pol);
+  img(cv, 10, y, 277, ih);
+}
+function deck5Canvas(sh, o = {}) {
+  const x0 = o.x0 ?? 0, x1 = o.x1 ?? D5W, cv = document.createElement('canvas');
+  cv.width = 3000; cv.height = Math.round(3000 * D5H / (x1 - x0));
+  if (cv.height > 3000) { cv.height = 3000; cv.width = Math.round(3000 * (x1 - x0) / D5H); }
+  drawD5Canvas(cv.getContext('2d'), cv.width, cv.height, sh, o); return cv;
+}
+function deck5ItemRows(sh) {
+  const items = sh.deck5.shapes.filter(s => s.type !== 'ev').map(s => ({ s, hold: shapeHold(s), x: bbox(s).x })).sort((a, b) => b.hold - a.hold || a.x - b.x);
+  return items.map(({ s, hold }) => {
+    const type = s.type === 'mafi' ? (s.mafis.length > 1 ? `MAFI stack (${s.mafis.length})` : 'MAFI') : s.type === 'pkg' ? 'Package' : 'Units';
+    const t = s.type === 'mafi' ? mafiTotals(s) : null;
+    const desc = s.type === 'mafi' ? s.mafis.map(m => m.no || '-').join(', ') + (s.mafis.every(m => !m.loaded) ? ' (empty)' : '') : (s.label || '');
+    return [`Hold ${hold}`, type, { content: `${code(s.pod)}/${code(s.pol)}`, styles: { fillColor: hexRgb(colorOf(s.pod)), fontStyle: 'bold' } }, s.type === 'rect' || s.type === 'free' ? fmt(num(s.units)) : '', s.type === 'pkg' ? fmt(num(s.pkgs)) : t ? fmt(t.pkgs) : '', s.type === 'pkg' ? fmt(num(s.mt), 1) : t ? fmt(t.mt, 1) : '', desc];
+  });
+}
 
-  // Page 2: stowage detail
+async function buildPdf() {
+  const K = await pdfKit(), { sh, doc, AT, dep, header, base, podCell, sortPods, footer, fileBase, img } = K;
+  const rows = cargoRows(sh), tot = sumRows(rows);
+
+  // 1. Coloured stowage plan, all cargo on board
+  stowagePage(K, 'CARGO STOWAGE PLAN');
+
+  // 2. Stowage plan, only units loaded at the port of export
+  if (dep) { doc.addPage(); stowagePage(K, `STOWAGE PLAN – LOADED AT ${dep.name.toUpperCase()} (${dep.code})`, dep.id); }
+
+  // 3. Stowage detail
   doc.addPage(); header('STOWAGE DETAIL');
   const det = []; DECKS.forEach(d => holdsFor(d).forEach(h => rows.filter(r => r.deck === d && r.hold === h).forEach(r => det.push([`DK ${d}`, `Hold ${h}`, heightOf(d, h)?.[2] || '', podCell(r.pod), code(r.pol), r.units ? fmt(r.units) : '', r.pkgs ? fmt(r.pkgs) : '', r.mt ? fmt(r.mt, 1) : '', r.brand]))));
-  AT({ ...base, startY: 19, head: [['Deck', 'Hold', 'Unit height', 'POD', 'POL', 'Units', 'PKGs', 'MT', 'Brand / model']], body: det.length ? det : [['', '', '', '', '', '', '', '', 'No cargo on board']] });
+  AT({ ...base, startY: 24, head: [['Deck', 'Hold', 'Unit height', 'POD', 'POL', 'Units', 'PKGs', 'MT', 'Brand / model']], body: det.length ? det : [['', '', '', '', '', '', '', '', 'No cargo on board']] });
 
-  // Page 3: summary
-  doc.addPage(); header('CARGO SUMMARY');
-  const sb = [];
+  // 4. Loading summary, port of export only
+  if (dep) {
+    doc.addPage(); header(`LOADING SUMMARY – ${dep.name.toUpperCase()} (${dep.code})`);
+    const mine = rows.filter(r => r.pol === dep.id), a = sumRows(mine), st = expStatus(dep, a);
+    AT({ ...base, startY: 24, head: [['POD', 'Hold 4', 'Hold 3', 'Hold 2', 'Hold 1', 'Units', 'PKGs', 'MT']],
+      body: sortPods(mine.map(r => r.pod)).map(pod => { const m = mine.filter(r => r.pod === pod), b = sumRows(m); return [podCell(pod), ...[4, 3, 2, 1].map(h => fmt(m.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(b.units), fmt(b.pkgs), fmt(b.mt, 1)]; }),
+      foot: [['Total', ...[4, 3, 2, 1].map(h => fmt(mine.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(a.units), fmt(a.pkgs), fmt(a.mt, 1)]] });
+    let y = doc.lastAutoTable.finalY + 6;
+    const stTxt = st.s === 'ok' ? 'Matches expected' : st.s === 'off' ? 'Does not match expected' : 'No expected numbers entered';
+    const stCol = st.s === 'ok' ? [61, 200, 120] : st.s === 'off' ? [255, 199, 44] : [226, 232, 240];
+    AT({ ...base, startY: y, tableWidth: 150, head: [['', 'Units', 'PKGs', 'Status']],
+      body: [['Expected', dep.expUnits || '-', dep.expPkgs || '-', { content: stTxt, rowSpan: 2, styles: { fillColor: stCol, fontStyle: 'bold', valign: 'middle' } }], ['Loaded', fmt(a.units), fmt(a.pkgs)]] });
+    y = doc.lastAutoTable.finalY + 6;
+    const dl = []; DECKS.forEach(d => holdsFor(d).forEach(h => mine.filter(r => r.deck === d && r.hold === h).forEach(r => dl.push([`DK ${d}`, `Hold ${h}`, podCell(r.pod), r.units ? fmt(r.units) : '', r.pkgs ? fmt(r.pkgs) : '', r.mt ? fmt(r.mt, 1) : '', r.brand]))));
+    AT({ ...base, startY: y, head: [['Deck', 'Hold', 'POD', 'Units', 'PKGs', 'MT', 'Brand / model']], body: dl.length ? dl : [['', '', '', '', '', '', `Nothing loaded at ${dep.code} yet`]] });
+  }
+
+  // 5. Loading summary, all loading ports
+  doc.addPage(); header('LOADING SUMMARY – ALL LOADING PORTS');
+  const sb = [], grey = [241, 245, 249];
   loadPorts().forEach(p => {
     const mine = rows.filter(r => r.pol === p.id), a = sumRows(mine), st = expStatus(p, a);
-    [...new Set(mine.map(r => r.pod))].forEach(pod => { const b = sumRows(mine.filter(r => r.pod === pod)); sb.push([p.name + ' (' + p.code + ')', podCell(pod), fmt(b.units), fmt(b.pkgs), fmt(b.mt, 1), '', '']); });
-    const stc = st.s === 'ok' ? { content: 'OK', styles: { fillColor: [61, 200, 120], fontStyle: 'bold' } } : st.s === 'off' ? { content: 'Check', styles: { fillColor: [255, 199, 44], fontStyle: 'bold' } } : '';
-    sb.push([{ content: 'Total at ' + p.code, styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: '', styles: { fillColor: [241, 245, 249] } }, { content: fmt(a.units), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: fmt(a.pkgs), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: fmt(a.mt, 1), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: `${p.expUnits || '-'} / ${p.expPkgs || '-'}`, styles: { fillColor: [241, 245, 249] } }, stc]);
+    sortPods(mine.map(r => r.pod)).forEach(pod => { const b = sumRows(mine.filter(r => r.pod === pod)); sb.push([p.name + ' (' + p.code + ')', podCell(pod), fmt(b.units), fmt(b.pkgs), fmt(b.mt, 1), '', '']); });
+    const stc = st.s === 'ok' ? { content: 'OK', styles: { fillColor: [61, 200, 120], fontStyle: 'bold' } } : st.s === 'off' ? { content: 'Check', styles: { fillColor: [255, 199, 44], fontStyle: 'bold' } } : { content: '', styles: { fillColor: grey } };
+    const g = (c, bold) => ({ content: c, styles: { fillColor: grey, fontStyle: bold ? 'bold' : 'normal' } });
+    sb.push([g('Total at ' + p.code, 1), g(''), g(fmt(a.units), 1), g(fmt(a.pkgs), 1), g(fmt(a.mt, 1), 1), g(`${p.expUnits || '-'} / ${p.expPkgs || '-'}`), stc]);
   });
-  AT({ ...base, startY: 19, head: [['Loading port', 'POD', 'Units', 'PKGs', 'MT', 'Expected units / PKGs', 'Status']], body: sb, foot: [['Grand total', '', fmt(tot.units), fmt(tot.pkgs), fmt(tot.mt, 1), '', '']] });
-  doc.setFontSize(7); doc.text('PKGs: packages on loaded MAFIs; an empty MAFI or empty MAFI stack counts as 1 PKG. MT: package weight plus MAFI tare.', 10, doc.lastAutoTable.finalY + 5);
+  AT({ ...base, startY: 24, head: [['Loading port', 'POD', 'Units', 'PKGs', 'MT', 'Expected units / PKGs', 'Status']], body: sb, foot: [['Grand total', '', fmt(tot.units), fmt(tot.pkgs), fmt(tot.mt, 1), '', '']] });
+  doc.setFontSize(7); doc.text('PKGs: packages on deck 5 and on loaded MAFIs; an empty MAFI or empty MAFI stack counts as 1 PKG. MT: package weight plus MAFI tare.', 10, doc.lastAutoTable.finalY + 5);
 
-  // Page 4: deck 5 + MAFI list
-  doc.addPage(); header('DECK 5 (MAIN DECK) AND MAFI LIST');
-  try { await D5IMG.decode(); } catch (e) { }
-  const c5 = document.createElement('canvas'); c5.width = 2400; c5.height = Math.round(2400 * D5H / D5W);
-  drawD5Canvas(c5.getContext('2d'), c5.width, c5.height, sh);
-  doc.addImage(c5.toDataURL('image/jpeg', 0.92), 'JPEG', 10, 19, 277, 277 * D5H / D5W);
+  // 6. Deck 5, full width
+  doc.addPage(); header('DECK 5 (MAIN DECK)');
+  const h5 = img(deck5Canvas(sh), 10, 24, 277, 120);
+  AT({ ...base, startY: 24 + h5 + 4, head: [['Hold', 'Item', 'POD/POL', 'Units', 'PKGs', 'MT', 'Description / MAFI No.']], body: deck5ItemRows(sh).length ? deck5ItemRows(sh) : [['', '', '', '', '', '', 'No items on deck 5']] });
+
+  // 7. MAFI and package list
+  doc.addPage(); header('MAFI AND PACKAGE LIST');
   const ml = mafiList(sh);
-  AT({ ...base, startY: 19 + 277 * D5H / D5W + 4, head: [['Hold', 'POD/POL', 'MAFI No.', 'Stack', 'Loaded', 'PKGs', 'MT', 'Tara']],
+  AT({ ...base, startY: 24, head: [['Hold', 'POD/POL', 'MAFI No.', 'Stack', 'Loaded', 'PKGs', 'MT', 'Tara']],
     body: ml.length ? ml.map(x => [`Hold ${x.hold}`, { content: x.podpol, styles: { fillColor: hexRgb(x.color), fontStyle: 'bold' } }, x.no || '-', x.stack, x.loaded ? 'Yes' : 'No', fmt(x.pkgs), fmt(x.mt, 1), fmt(x.tara, 1)]) : [['', '', '', '', '', '', '', 'No MAFIs']],
     foot: ml.length ? [['Total', '', ml.length + ' MAFIs', '', '', fmt(ml.reduce((a, x) => a + x.pkgs, 0)), fmt(ml.reduce((a, x) => a + x.mt, 0), 1), fmt(ml.reduce((a, x) => a + x.tara, 0), 1)]] : undefined });
+  const pk = pkgList(sh);
+  AT({ ...base, startY: doc.lastAutoTable.finalY + 6, head: [['Hold', 'POD/POL', 'Package', 'PKGs', 'MT']],
+    body: pk.length ? pk.map(x => [`Hold ${x.hold}`, { content: x.podpol, styles: { fillColor: hexRgb(x.color), fontStyle: 'bold' } }, x.label || '-', fmt(x.pkgs), fmt(x.mt, 1)]) : [['', '', 'No packages', '', '']],
+    foot: pk.length ? [['Total', '', pk.length + ' items', fmt(pk.reduce((a, x) => a + x.pkgs, 0)), fmt(pk.reduce((a, x) => a + x.mt, 0), 1)]] : undefined });
 
-  const n = doc.getNumberOfPages();
-  for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7); doc.setTextColor(110); doc.text(`Page ${i} of ${n}   Created ${new Date().toLocaleString('en-GB')}`, 287, 205, { align: 'right' }); doc.setTextColor(0); }
+  footer();
+  return { blob: doc.output('blob'), name: fileBase.replace('%', 'Stowage_Plan') };
+}
 
-  const dd = sh.depDate ? new Date(sh.depDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-') : 'nodate';
-  const name = `${sh.short || 'SHIP'}-Stowage_Plan_Dep_${depName.replace(/[^A-Za-z0-9]+/g, '_')}_${dd}_VOY_${(sh.voyage || '').replace(/[^A-Za-z0-9]+/g, '') || 'NA'}.pdf`;
-  return { blob: doc.output('blob'), name };
+// Separate landscape Deck 5 report: whole deck, then each hold enlarged, then item list
+async function buildDeck5Pdf() {
+  const K = await pdfKit(), { sh, doc, AT, header, base, footer, fileBase, img } = K;
+  header('DECK 5 (MAIN DECK)');
+  img(deck5Canvas(sh), 10, 26, 277, 172);
+  D5HOLDS.forEach(z => {
+    if (!sh.deck5.shapes.some(s => shapeHold(s) === z.h)) return;
+    doc.addPage(); header(`DECK 5 – HOLD ${z.h}`);
+    img(deck5Canvas(sh, { x0: Math.max(0, z.x0 - 10), x1: Math.min(D5W, z.x1 + 10) }), 10, 24, 277, 176);
+  });
+  doc.addPage(); header('DECK 5 – ITEMS');
+  const ir = deck5ItemRows(sh);
+  AT({ ...base, startY: 24, head: [['Hold', 'Item', 'POD/POL', 'Units', 'PKGs', 'MT', 'Description / MAFI No.']], body: ir.length ? ir : [['', '', '', '', '', '', 'No items on deck 5']] });
+  footer();
+  return { blob: doc.output('blob'), name: fileBase.replace('%', 'Deck5') };
 }
 function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
 async function shareFile(blob, name, type, title) {
@@ -1105,7 +1327,7 @@ document.addEventListener('click', async e => {
       const ok = await confirmBox(used ? `${p.code} is used by ${used} cargo record(s). Delete the port and its cargo?` : `Delete ${p.code} (${p.name})?`);
       if (!ok) break;
       sh.ports = sh.ports.filter(x => x.id !== id);
-      for (const k in sh.holds) { const ho = sh.holds[k]; ho.cells = ho.cells.map(c => (c === id ? null : c)); ho.entries = ho.entries.filter(en => en.pod !== id && en.pol !== id); }
+      for (const k in sh.holds) { const ho = sh.holds[k]; const pl = holdPols(ho); ho.pols = pl.map((q, i) => (ho.cells[i] === id || q === id ? null : q)); ho.cells = ho.cells.map((c, i) => (c === id || pl[i] === id ? null : c)); ho.entries = ho.entries.filter(en => en.pod !== id && en.pol !== id); }
       sh.deck5.shapes = sh.deck5.shapes.filter(s => s.pod !== id && s.pol !== id);
       if (sh.activePol === id) sh.activePol = null;
       save(); rerender(); break;
@@ -1113,31 +1335,40 @@ document.addEventListener('click', async e => {
     // hold editor
     case 'mode': UI.mode = v; rerender(); break;
     case 'pickPod': UI.pod = v; $$('.chip').forEach(c => c.classList.toggle('on', c.dataset.v === v)); { const f = $('[data-act="fillHold"]'); if (f) f.textContent = 'Fill with ' + code(v); } break;
-    case 'undo': { const ho = getHold(UI.deck, UI.hold, true); if (UI.undo.length) { const u = UI.undo.pop(); ho.cells = u.cells; ho.arrows = u.arrows; ho.evs = u.evs || []; if (UI.mode === 'ev' || UI.mode === 'arrow') rerender(); else { drawHoldGrid(); refreshHoldMeta(); } save(); } break; }
-    case 'fillHold': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.fill(UI.pod); drawHoldGrid(); afterStroke('paint'); } break;
+    case 'undo': { const ho = getHold(UI.deck, UI.hold, true); if (UI.undo.length) { const u = UI.undo.pop(); ho.cells = u.cells; ho.pols = u.pols || holdPols({ cells: u.cells, entries: ho.entries }); ho.arrows = u.arrows; ho.evs = u.evs || []; if (UI.mode === 'ev' || UI.mode === 'arrow') rerender(); else { drawHoldGrid(); refreshHoldMeta(); } save(); } break; }
+    case 'fillHold': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.fill(UI.pod); ho.pols.fill(sh.activePol || null); drawHoldGrid(); afterStroke('paint'); } break;
     case 'clearEvs': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.evs.length} EV marks from this hold?`, 'Remove EV marks')) { pushUndo(); ho.evs = []; save(); rerender(); } break; }
     case 'clearArrows': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.arrows.length} arrows from this hold?`, 'Remove arrows')) { pushUndo(); ho.arrows = []; save(); rerender(); } break; }
-    case 'clearHold': { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.fill(null); drawHoldGrid(); afterStroke('erase'); } break;
+    case 'clearHold': { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.fill(null); ho.pols.fill(null); drawHoldGrid(); afterStroke('erase'); } break;
     case 'addEntry': { const ho = getHold(UI.deck, UI.hold, true); if (!dischPorts().length) { toast('Add a discharging port first.'); break; } ho.entries.push({ id: uid(), pod: UI.pod || dischPorts()[0].id, pol: sh.activePol || '', units: '', brand: '' }); save(); $('#entries').innerHTML = entriesHtml(ho); const last = $$('#entries .entry').pop(); last && $('[data-ebind="units"]', last).focus(); break; }
     case 'delEntry': { const ho = getHold(UI.deck, UI.hold, true); const en = ho.entries.find(x => x.id === id); if (await confirmBox(`Remove ${en.units || 0} ${code(en.pod)} units from this hold?`, 'Remove')) { ho.entries = ho.entries.filter(x => x.id !== id); save(); $('#entries').innerHTML = entriesHtml(ho); refreshHoldMeta(); } break; }
-    case 'navDeck': { const d = +v; if (d === 5) { UI.view = 'deck5'; UI.d5.zoom = null; UI.d5.vb = null; UI.d5.sel = null; } else { UI.view = 'hold'; UI.deck = d; if (!holdsFor(d).includes(UI.hold)) UI.hold = holdsFor(d)[0]; UI.undo = []; } render(); break; }
-    case 'navHold': if (UI.view === 'deck5') { UI.d5.zoom = v === 'all' ? null : +v; UI.d5.vb = null; render(); } else { UI.hold = +v; UI.undo = []; render(); } break;
+    case 'navDeck': { const d = +v; if (d === 5) { UI.view = 'deck5'; UI.d5.zoom = null; UI.d5.vb = null; UI.d5.sel = null; UI.d5undo = []; } else { UI.view = 'hold'; UI.deck = d; if (!holdsFor(d).includes(UI.hold)) UI.hold = holdsFor(d)[0]; UI.undo = []; UI.dv.vb = null; } render(); break; }
+    case 'navHold': if (UI.view === 'deck5') { UI.d5.zoom = v === 'all' ? null : +v; UI.d5.vb = null; render(); } else { UI.dv.vb = null; if (v === 'all') { UI.dv.all = true; } else { UI.dv.all = false; UI.hold = +v; UI.undo = []; } render(); } break;
     // deck 5
     case 'd5tool': setTool(v); break;
+    case 'd5poly': if (v === 'finish') polyFinish(); else if (v === 'cancel') { UI.d5.poly = null; polyDraw(); } else if (UI.d5.poly) { UI.d5.poly.pop(); polyDraw(); } break;
+    case 'dkzoom': { const g = DECKPIC[UI.deck], vb = dkVB(), f = v === 'in' ? 1 / 1.6 : 1.6, cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
+      const w = clamp(vb.w * f, 30, Math.min(g.w, g.h * vb.w / vb.h)), h = w * vb.h / vb.w; dkApply(dkClamp({ x: cx - w / 2, y: cy - h / 2, w, h })); drawHoldGrid(); break; }
+    case 'd5undo': if (UI.d5undo.length) { sh.deck5.shapes = JSON.parse(UI.d5undo.pop()); UI.d5.sel = null; save(); render(); } break;
     case 'd5zoom': { const vb = d5VB(), cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2; if (v === 'fit') { UI.d5.vb = null; UI.d5.zoom = null; render(); } else zoomAt(v === 'in' ? 1 / 1.6 : 1.6, cx, cy); break; }
-    case 'd5Del': { const s = sh.deck5.shapes.find(x => x.id === UI.d5.sel); if (s && await confirmBox('Delete the selected item from Deck 5?')) { sh.deck5.shapes = sh.deck5.shapes.filter(x => x.id !== s.id); UI.d5.sel = null; save(); drawD5(); } break; }
+    case 'd5Del': { const s = sh.deck5.shapes.find(x => x.id === UI.d5.sel); if (s && await confirmBox('Delete the selected item from Deck 5?')) { pushD5(); sh.deck5.shapes = sh.deck5.shapes.filter(x => x.id !== s.id); UI.d5.sel = null; save(); drawD5(); } break; }
     // export
     case 'makePdf': {
       b.disabled = true; b.textContent = 'Creating PDF…';
       try { UI.pdf = await buildPdf(); rerender(); toast('PDF created.'); } catch (err) { console.error(err); toast('Could not create PDF: ' + err.message); b.disabled = false; b.textContent = 'Create PDF'; }
       break;
     }
-    case 'sharePdf': if (UI.pdf) { try { navigator.clipboard && navigator.clipboard.writeText(sh.email).catch(() => { }); } catch (e) { } shareFile(UI.pdf.blob, UI.pdf.name, 'application/pdf', UI.pdf.name.replace('.pdf', '')); } break;
-    case 'savePdf': if (UI.pdf) shareFile(UI.pdf.blob, UI.pdf.name, 'application/pdf', UI.pdf.name); break;
+    case 'sharePdf': { const f = UI[v || 'pdf']; if (f) { try { navigator.clipboard && navigator.clipboard.writeText(sh.email).catch(() => { }); } catch (e) { } shareFile(f.blob, f.name, 'application/pdf', f.name.replace('.pdf', '')); } break; }
+    case 'savePdf': { const f = UI[v || 'pdf']; if (f) shareFile(f.blob, f.name, 'application/pdf', f.name); break; }
+    case 'makePdf5': {
+      b.disabled = true; b.textContent = 'Creating PDF…';
+      try { UI.pdf5 = await buildDeck5Pdf(); rerender(); toast('Deck 5 PDF created.'); } catch (err) { console.error(err); toast('Could not create PDF: ' + err.message); b.disabled = false; b.textContent = 'Create Deck 5 PDF'; }
+      break;
+    }
     case 'backup': { const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' }); shareFile(blob, `stowage-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json', 'Stowage backup'); break; }
     case 'newVoyage': {
       if (!(await confirmBox(`Remove all cargo and all ports for ${sh.name}? Save a backup first if you may need this voyage again.`, 'Clear all'))) break;
-      sh.holds = {}; sh.deck5 = { shapes: [], v2: true }; sh.ports = []; sh.activePol = null; UI.pod = null; UI.openPort = null; UI.pdf = null;
+      sh.holds = {}; sh.deck5 = { shapes: [], v2: true }; sh.ports = []; sh.activePol = null; UI.pod = null; UI.openPort = null; UI.pdf = null; UI.pdf5 = null;
       save(); UI.tab = 'ports'; rerender(); toast('Cargo and ports cleared. Add the ports for the new voyage.'); break;
     }
   }

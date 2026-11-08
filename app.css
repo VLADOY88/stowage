@@ -84,7 +84,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .ttl b { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ttl span { font-size: 13px; color: var(--muted); }
 .tabs { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 52px); z-index: 19; display: flex; gap: 2px; padding: 0 8px 8px; background: var(--bg); overflow-x: auto; }
-.tabs button { flex: 1; min-height: 38px; border: 0; border-radius: 9px; background: transparent; font-weight: 700; font-size: 14px; color: var(--muted); white-space: nowrap; padding: 0 8px; }
+.tabs button { flex: 1 1 auto; min-height: 38px; border: 0; border-radius: 9px; background: transparent; font-weight: 700; font-size: 14px; color: var(--muted); white-space: nowrap; padding: 0 8px; }
 .tabs button.on { background: var(--surface); color: var(--ink); box-shadow: inset 0 -3px 0 var(--accent); }
 
 /* Ship tab */
@@ -237,6 +237,45 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .ev-ghost { position: fixed; z-index: 70; width: 44px; height: 44px; transform: translate(-50%, -110%); pointer-events: none; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
 .ev-ghost .bolt { width: 44px; height: 44px; }
 .seg.wide button { padding: 0 6px; }
-#d5 rect, #d5 path, #d5 circle, #d5 polygon { vector-effect: non-scaling-stroke; }
+#d5 rect, #d5 path, #d5 circle { vector-effect: non-scaling-stroke; }
 .seg.zoom button { min-width: 44px; font-size: 18px; font-weight: 800; }
 .seg.zoom button:last-child { font-size: 14px; }
+.dk-bar { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; font-size: 13px; }
+.dk-bar .seg { flex: none; }
+.dk-wrap { margin: 6px 0; background: #ffffff; border-radius: 10px; padding: 3px; }
+#dk { display: block; width: 100%; height: auto; max-height: 62svh; touch-action: none; font-family: var(--font); }
+#dk rect, #dk line, #dk .arw polygon { vector-effect: non-scaling-stroke; }
+.curhold { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 8 5; }
+.dk-lbl { fill: #33465f; font-weight: 800; opacity: .8; }
+@media (orientation: landscape) and (max-height: 500px) { #dk { max-height: calc(100svh - 120px); } }
+/* Deck editor in landscape: controls in one compact band, picture fills the screen */
+@media (orientation: landscape) and (max-height: 500px) {
+  .view-hold .top { padding: 0 calc(env(safe-area-inset-right, 0px) + 4px) 0 calc(env(safe-area-inset-left, 0px) + 4px); }
+  .view-hold .hold-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 0 calc(env(safe-area-inset-right, 0px) + 12px) 0 calc(env(safe-area-inset-left, 0px) + 12px); }
+  .view-hold .hsel { margin: 0; flex: 0 0 auto; }
+  .view-hold .hsel select { min-height: 36px; padding: 4px 8px; }
+  .view-hold .seg.wide { display: inline-flex; margin: 0; flex: 0 0 auto; }
+  .view-hold .seg.wide button { flex: none; min-height: 36px; padding: 0 12px; }
+  .view-hold .chips { margin: 0; }
+  .view-hold .chip { min-height: 34px; min-width: 48px; }
+  .view-hold .dk-bar { margin: 0; }
+  .view-hold .dk-bar .muted, .view-hold .ev-bar p, .view-hold .arrow-hint { display: none; }
+  .view-hold .ev-bar { margin: 0; }
+  .view-hold .ev-drag { width: 40px; height: 40px; }
+  .view-hold .dk-wrap, .view-hold .row-btns, .view-hold .sec-h, .view-hold #entries, .view-hold .hold-main > .btn { flex: 1 1 100%; }
+  .view-hold .dk-wrap { margin: 0; }
+  .view-hold .bnav { display: flex; gap: 12px; padding-left: calc(env(safe-area-inset-left, 0px) + 8px); padding-right: calc(env(safe-area-inset-right, 0px) + 8px); }
+  .view-hold .bnav .brow { margin: 0; }
+  .view-hold { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 60px) !important; }
+  #dk { max-height: calc(100svh - 150px); }
+}
+#d5Tools .seg:not(.zoom) { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+#d5Tools .seg:not(.zoom)::-webkit-scrollbar { display: none; }
+#d5Tools .seg button { flex: none; white-space: nowrap; }
+.poly-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 12px 0; }
+.poly-bar:empty { display: none; }
+.poly-bar .btn { margin: 0; }
+@media (orientation: landscape) and (max-height: 500px) {
+  .poly-bar .btn { min-height: 32px; }
+  .view-deck5:has(.poly-bar:not(:empty)) #d5 { max-height: calc(100svh - 236px); }
+}
