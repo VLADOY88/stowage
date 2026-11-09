@@ -284,3 +284,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .erase-chips .chip.on { outline-color: var(--danger); }
 #dk .dshape { vector-effect: non-scaling-stroke; }
 .view-hold .seg.wide button { padding: 0 4px; font-size: 14px; }
+.vtxh { fill: #fff; stroke: #0e2036; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.vtxh.on { fill: var(--accent); }
+.midh { fill: var(--accent); stroke: #0e2036; stroke-width: 1; opacity: .85; vector-effect: non-scaling-stroke; }
+.hstar { fill: #0e2036; stroke: #fff; stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.seg.brush button { min-width: 38px; font-size: 14px; }
+.dk-bar { flex-wrap: wrap; }
+#dkPolyBar { min-height: 88px; align-content: flex-start; }
+@media (orientation: landscape) and (max-height: 500px) { #dkPolyBar { min-height: 0; flex: 1 1 100%; } }

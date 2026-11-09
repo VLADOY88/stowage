@@ -1,4 +1,4 @@
-const CACHE = 'stowage-v15';
+const CACHE = 'stowage-v16';
 const ASSETS = ['./', './index.html', './app.css', './app.js', './manifest.webmanifest', './locode.json', './deck5.png', './deck1.png', './deck2.png', './deck3.png', './deck4.png', './deck6.png', './deck7.png', './deck8.png', './deck9.png', './deck10.png', './deck11.png', './deck12.png',
   './jspdf.umd.min.js', './jspdf.plugin.autotable.min.js', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 // Cache each file on its own, so one missing file never breaks offline use

@@ -36,6 +36,10 @@ function heightSelect(d, h) {
   return `<label class="fld inline hsel"><span>Unit height</span><select data-hbind="${d}-${h}"><option value="">Not set</option>${HEIGHTS.map(x => `<option value="${x[0]}" ${v === x[0] ? 'selected' : ''}>${x[1]}</option>`).join('')}</select></label>`;
 }
 
+const starCount = code => (code === '18-21' ? 1 : code === 'gt21' ? 2 : 0);
+function starPts(cx, cy, r) { const o = []; for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; o.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]); } return o; }
+const starsSvg = (cx, cy, r, n) => Array.from({ length: n }, (_, k) => `<polygon class="hstar" points="${starPts(cx + (k - (n - 1) / 2) * r * 2.1, cy, r).map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join(' ')}"/>`).join('');
+function drawStars(ctx, cx, cy, r, n) { for (let k = 0; k < n; k++) { const pts = starPts(cx + (k - (n - 1) / 2) * r * 2.1, cy, r); ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.fillStyle = '#0e2036'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, r * 0.25); ctx.lineJoin = 'round'; ctx.stroke(); ctx.fill(); } }
 function holdsFor(d) {
   if (d === 1 || d === 2) return [3, 2];
   if (d === 3 || d === 4) return [3, 2, 1];
@@ -248,7 +252,7 @@ function uniqueCode(base, exceptId) {
 function nextColor() { const used = new Set(ship().ports.map(p => p.color)); const f = PALETTE.find(c => !used.has(c[1])); return f ? f[1] : PALETTE[0][1]; }
 
 /* ---------- UI state ---------- */
-const UI = { erasePod: null, view: 'home', tab: 'ship', deck: 7, hold: 3, mode: 'paint', pod: null, undo: [], dv: { vb: null, deck: null, all: false }, d5undo: [], d5: { tool: 'select', sel: null, zoom: null }, pdf: null, openPort: null };
+const UI = { erasePod: null, brush: 3, dkSel: null, view: 'home', tab: 'ship', deck: 7, hold: 3, mode: 'paint', pod: null, undo: [], dv: { vb: null, deck: null, all: false }, d5undo: [], d5: { tool: 'select', sel: null, zoom: null }, pdf: null, openPort: null };
 const app = document.getElementById('app');
 function render() {
   const y = window.scrollY;
@@ -457,12 +461,9 @@ function drawShip(ctx, W, H, sh, T, pol) {
     }
     for (let j = 0; j < 4; j++) {
       const h = 4 - j, o = sh.holds[d + '-' + h]; if (!hs.includes(h) || !o || !o.height || (pol && !holdHas(d, h))) continue;
-      const hh = HEIGHTS.find(x => x[0] === o.height); if (!hh) continue;
-      const fs = Math.max(6.5, Math.min(L.rh * 0.24, L.cw * 0.1));
-      ctx.font = `800 ${fs}px -apple-system,system-ui,Helvetica,sans-serif`;
-      const tw = ctx.measureText(hh[2]).width + fs * 0.5, bx = L.x0 + (j + 1) * L.cw - tw - 2, by = y + 2;
-      ctx.fillStyle = hh[3]; ctx.fillRect(bx, by, tw, fs * 1.2);
-      ctx.fillStyle = hh[0] === 'lt18' ? '#0e2036' : '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(hh[2], bx + tw / 2, by + fs * 0.62);
+      const n = starCount(o.height); if (!n) continue;
+      const r = Math.max(2.8, Math.min(L.rh * 0.13, L.cw * 0.05));
+      drawStars(ctx, L.x0 + (j + 1) * L.cw - r * (n * 2.1 + 0.6) / 2 - 2, y + L.rh / 2, r, n);
     }
   });
   return L;
@@ -632,10 +633,10 @@ function renderHold() {
       <button data-act="mode" data-v="ev" class="${UI.mode === 'ev' ? 'on' : ''}">EV</button>
     </div>
     ${UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
-    <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div><span class="muted">Two fingers: zoom and move</span></div>
+    <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div>${UI.mode === 'paint' || UI.mode === 'erase' ? `<div class="seg brush" aria-label="Tool size">${[[1, 'S'], [3, 'M'], [6, 'L'], ['rect', '▭ Area']].map(([v, n]) => `<button data-act="brush" data-v="${v}" class="${String(UI.brush) === String(v) ? 'on' : ''}">${n}</button>`).join('')}</div>` : `<span class="muted">Two fingers: zoom and move</span>`}</div>
     ${UI.mode === 'draw' ? `<div class="poly-bar" id="dkPolyBar"></div>` : ''}
     <div class="dk-wrap"><svg id="dk" xmlns="http://www.w3.org/2000/svg"></svg></div>
-    <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : UI.mode === 'erase' ? `<button class="btn sm danger" data-act="clearHold">${UI.erasePod ? `Discharge all ${esc(code(UI.erasePod))} from Hold ${h}` : `Discharge all of Hold ${h}`}</button>` : UI.mode === 'draw' ? '' : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button>`}</div>
+    <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : UI.mode === 'erase' ? `<button class="btn sm danger" data-act="clearHold">${UI.erasePod ? `Discharge all ${esc(code(UI.erasePod))} from Hold ${h}` : `Discharge all of Hold ${h}`}</button>` : UI.mode === 'draw' ? '' : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button><button class="btn sm" data-act="fillRest">Fill remaining of Hold ${h} with ${esc(code(UI.pod))}</button>`}</div>
     <div class="sec-h"><h2>Units in Hold ${h}</h2><b id="holdTot">${fmt(ho.entries.reduce((a, e) => a + num(e.units), 0))}</b></div>
     <div id="entries">${entriesHtml(ho)}</div>
     <button class="btn" data-act="addEntry">${I.plus} Add units</button>
@@ -716,7 +717,9 @@ function drawHoldGrid() {
     ${cur ? `<rect x="${cur.x0}" y="0.5" width="${cur.x1 - cur.x0}" height="${g.h - 1}" class="curhold"/>` : ''}
     ${deckHolds(d).map(z => `<text x="${(z.x0 + z.x1) / 2}" y="${12 * dkUpp() + 2}" font-size="${11 * dkUpp()}" class="dk-lbl" text-anchor="middle">Hold ${z.h}</text>`).join('')}
     <g id="dkMarks">${dkMarksSvg(d)}</g>
+    ${deckHolds(d).map(z => { const o = ship().holds[d + '-' + z.h], n = o ? starCount(o.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, g.h / 2, 7 * dkUpp(), n) : ''; }).join('')}
     ${UI.evTmp ? `<g opacity=".55">${boltSvg(UI.evTmp[0], UI.evTmp[1], 24 * dkUpp())}</g>` : ''}
+    <g id="dkSelL">${dkSelSvg()}</g>
     <g id="dkTmp"></g>`;
   if (UI.mode === 'draw') dkPolyDraw();
 }
@@ -731,9 +734,15 @@ function bindDeck() {
   const cellOf = (z, p) => ({ x: clamp(Math.floor((p[0] - z.x0) / (z.x1 - z.x0) * GC), 0, GC - 1), y: clamp(Math.floor(p[1] / g.h * GR), 0, GR - 1) });
   const line = (a, b) => { const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) || 1, o = []; for (let i = 0; i <= n; i++) o.push({ x: Math.round(a.x + (b.x - a.x) * i / n), y: Math.round(a.y + (b.y - a.y) * i / n) }); return o; };
   const eraseShapesAt = (ho, z, p) => { const f = [(p[0] - z.x0) / (z.x1 - z.x0), p[1] / g.h]; ho.shapes = (ho.shapes || []).filter(q => !(inPoly(f, q.pts) && (!UI.erasePod || q.pod === UI.erasePod))); };
+  const brushAt = (ho, c) => { const n = UI.brush === 'rect' ? 1 : UI.brush, r0 = Math.floor((n - 1) / 2); for (let dy = 0; dy < n; dy++) for (let dx = 0; dx < n; dx++) { const x = c.x - r0 + dx, y = c.y - r0 + dy; if (x >= 0 && x < GC && y >= 0 && y < GR) paintCell(ho, { x, y }); } };
+  const areaPreview = A => { const W = A.z.x1 - A.z.x0, cw = W / GC, ch = g.h / GR, x0 = Math.min(A.a.x, A.b.x), x1 = Math.max(A.a.x, A.b.x), y0 = Math.min(A.a.y, A.b.y), y1 = Math.max(A.a.y, A.b.y);
+    $('#dkTmp').innerHTML = `<rect x="${A.z.x0 + x0 * cw}" y="${y0 * ch}" width="${(x1 - x0 + 1) * cw}" height="${(y1 - y0 + 1) * ch}" fill="${UI.mode === 'erase' ? '#ffffff' : colorOf(UI.pod)}" fill-opacity=".55" class="selbox"/>`; };
+  const dkRefresh = () => { redrawCells(); const l = $('#dkSelL'); if (l) l.innerHTML = dkSelSvg(); dkPolyDraw(); };
   const switchHold = z => { if (z.h !== UI.hold) { UI.hold = z.h; UI.undo = []; return true; } return false; };
   const redrawCells = () => { const c = svg.querySelector('g[opacity]'); if (c) c.innerHTML = dkCellsSvg(d); };
   const cancel = () => {
+    if (act && act.k === 'area') { UI.undo.pop(); }
+    if (act && (act.k === 'vtx' || (act.k === 'smove' && act.moved)) && UI.undo.length) { const u = UI.undo.pop(); getHold(d, act.z.h, true).shapes = u.shapes; }
     if (act && (act.k === 'paint') && act.snap) { const ho = getHold(d, act.z.h, true); ho.cells = act.snap.cells; ho.pols = act.snap.pols; ho.shapes = act.snap.shapes || []; UI.undo.pop(); }
     if (act && act.k === 'evmove' && act.moved) { UI.undo.pop(); }
     act = null; UI.evTmp = null; drawHoldGrid();
@@ -749,6 +758,21 @@ function bindDeck() {
     if (touches.size > 2 || blocked) return;
     const p = pt(e.clientX, e.clientY), z = holdAt(p[0]);
     const switched = switchHold(z), ho = getHold(d, z.h, true);
+    if (UI.mode === 'draw' && !UI.dkPoly) {
+      const vh = e.target.closest('[data-vi]'), mh = e.target.closest('[data-mi]'), sel = dkSelShape();
+      if ((vh || mh) && sel) {
+        UI.hold = sel.z.h; pushUndo(); const q = getHold(d, sel.z.h, true).shapes.find(x => x.id === sel.q.id); let i;
+        if (mh) { i = +mh.dataset.mi + 1; q.pts.splice(i, 0, frac(sel.z, p)); } else i = +vh.dataset.vi;
+        UI.dkSel.vi = i; act = { k: 'vtx', z: sel.z, q, i, c: [e.clientX, e.clientY], moved: !!mh }; dkRefresh(); return;
+      }
+      // tap inside an existing shape selects it (drag moves it)
+      for (const zz of deckHolds(d)) {
+        const o = sh.holds[d + '-' + zz.h]; const f = frac(zz, p); if (!o || p[0] < zz.x0 || p[0] > zz.x1) continue;
+        const hit = [...(o.shapes || [])].reverse().find(x => inPoly(f, x.pts));
+        if (hit) { if (!UI.dkSel || UI.dkSel.id !== hit.id) { UI.dkSel = { deck: d, h: zz.h, id: hit.id, vi: null }; toast('Drag a corner to move it, drag a small dot to add a corner, drag inside to move the shape.', 4500); } UI.hold = zz.h; act = { k: 'smove', z: zz, q: hit, a: f, o: hit.pts.map(t => t.slice()), c: [e.clientX, e.clientY], moved: false }; dkRefresh(); return; }
+      }
+      if (UI.dkSel) { UI.dkSel = null; dkRefresh(); return; }
+    }
     if (UI.mode === 'draw') {
       if (!UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
       act = { k: 'draw', p, z: UI.dkPoly ? deckHolds(d).find(q => q.h === UI.dkPoly.h) : z, switched: false };
@@ -757,8 +781,9 @@ function bindDeck() {
     if (UI.mode === 'paint' || UI.mode === 'erase') {
       if (UI.mode === 'paint' && !UI.pod) { toast('Add a discharging port in the Ports tab first.'); return; }
       pushUndo(); const c = cellOf(z, p);
+      if (UI.brush === 'rect') { act = { k: 'area', z, a: c, b: c, switched }; areaPreview(act); return; }
       act = { k: 'paint', z, last: c, switched, snap: { cells: UI.undo.at(-1).cells, pols: UI.undo.at(-1).pols, shapes: UI.undo.at(-1).shapes } };
-      paintCell(ho, c); if (UI.mode === 'erase') eraseShapesAt(ho, z, p); redrawCells();
+      brushAt(ho, c); if (UI.mode === 'erase') eraseShapesAt(ho, z, p); redrawCells();
     } else if (UI.mode === 'arrow') act = { k: 'arrow', z, a: p, switched };
     else if (UI.mode === 'ev') {
       const u = dkUpp(); let best = -1, bd = 22 * u;
@@ -777,8 +802,14 @@ function bindDeck() {
       return;
     }
     if (!act || blocked) return; const p = pt(e.clientX, e.clientY);
-    if (act.k === 'paint') { const ho = getHold(d, act.z.h, true), c = cellOf(act.z, p); line(act.last, c).forEach(q => paintCell(ho, q)); if (UI.mode === 'erase') eraseShapesAt(ho, act.z, p); act.last = c; redrawCells(); }
+    if (act.k === 'area') { act.b = cellOf(act.z, p); areaPreview(act); }
+    else if (act.k === 'paint') { const ho = getHold(d, act.z.h, true), c = cellOf(act.z, p); line(act.last, c).forEach(q => brushAt(ho, q)); if (UI.mode === 'erase') eraseShapesAt(ho, act.z, p); act.last = c; redrawCells(); }
     else if (act.k === 'draw') { act.p = dkClampToHold(act.z, p); dkPolyDraw(act.p); }
+    else if (act.k === 'vtx') { if (Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 4) act.moved = true; if (act.moved) { act.q.pts[act.i] = frac(act.z, p); dkRefresh(); } }
+    else if (act.k === 'smove') {
+      if (!act.moved && Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 6) { act.moved = true; pushUndo(); }
+      if (act.moved) { const f = frac(act.z, p), dx = f[0] - act.a[0], dy = f[1] - act.a[1]; act.q.pts = act.o.map(t => [clamp(t[0] + dx, 0, 1), clamp(t[1] + dy, 0, 1)]); dkRefresh(); }
+    }
     else if (act.k === 'arrow') { act.b = p; $('#dkTmp').innerHTML = `<g opacity=".6">${arrowSvg(act.a[0], act.a[1], p[0], p[1], dkUpp())}</g>`; }
     else if (act.k === 'evmove') {
       if (!act.moved && Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 6) { act.moved = true; pushUndo(); }
@@ -794,6 +825,14 @@ function bindDeck() {
     const ho = getHold(d, A.z.h, true);
     const finish = changed => { save(); if (A.switched || changed) rerender(); };
     if (A.k === 'paint') { if (A.switched) rerender(); afterStroke(UI.mode); return; }
+    if (A.k === 'area') {
+      const x0 = Math.min(A.a.x, A.b.x), x1 = Math.max(A.a.x, A.b.x), y0 = Math.min(A.a.y, A.b.y), y1 = Math.max(A.a.y, A.b.y);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) paintCell(ho, { x, y });
+      if (UI.mode === 'erase') ho.shapes = ho.shapes.filter(q => { const cx = q.pts.reduce((a, t) => a + t[0], 0) / q.pts.length * GC, cy = q.pts.reduce((a, t) => a + t[1], 0) / q.pts.length * GR; return !(cx >= x0 && cx <= x1 + 1 && cy >= y0 && cy <= y1 + 1 && (!UI.erasePod || q.pod === UI.erasePod)); });
+      $('#dkTmp').innerHTML = ''; if (A.switched) rerender(); else redrawCells(); afterStroke(UI.mode); return;
+    }
+    if (A.k === 'vtx') { if (!A.moved) UI.undo.pop(); save(); if (A.switched) rerender(); else dkRefresh(); return; }
+    if (A.k === 'smove') { save(); if (A.switched) rerender(); else dkRefresh(); return; }
     if (A.k === 'draw') {
       const p = A.p, u = dkUpp();
       if (!UI.dkPoly) UI.dkPoly = { h: A.z.h, pts: [] };
@@ -833,9 +872,19 @@ function bindDeck() {
 }
 function inPoly(p, pts) { let ins = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) ins = !ins; } return ins; }
 const holdPresent = ho => new Set([...ho.cells.filter(Boolean), ...(ho.shapes || []).map(q => q.pod)]);
+function dkSelShape() { const S = UI.dkSel; if (!S || S.deck !== UI.deck) return null; const ho = ship().holds[UI.deck + '-' + S.h]; const q = ho && (ho.shapes || []).find(x => x.id === S.id); return q ? { q, ho, z: deckHolds(UI.deck).find(t => t.h === S.h) } : null; }
+function dkSelSvg() {
+  const r = UI.mode === 'draw' && dkSelShape(); if (!r) return '';
+  const g = DECKPIC[UI.deck], W = r.z.x1 - r.z.x0, pts = r.q.pts.map(p => [r.z.x0 + p[0] * W, p[1] * g.h]);
+  return `<polygon points="${pts.map(p => p.join(',')).join(' ')}" fill="none" class="selbox"/>` + vertexHandles(pts, dkUpp(), UI.dkSel.vi);
+}
 function dkPolyDraw(cursor) {
-  const tmp = $('#dkTmp'), bar = $('#dkPolyBar'), P = UI.dkPoly, n = P ? P.pts.length : 0;
-  if (bar) bar.innerHTML = `<span><b>${n}</b> corner${n === 1 ? '' : 's'}${P ? ` in Hold ${P.h}` : ''}</span>
+  const tmp = $('#dkTmp'), bar = $('#dkPolyBar'), P = UI.dkPoly, n = P ? P.pts.length : 0, sel = !P && dkSelShape();
+  if (bar && sel) bar.innerHTML = `<span><b>Edit shape</b></span>
+    <button class="btn sm" data-act="dkedit" data-v="vdel" ${UI.dkSel.vi != null && sel.q.pts.length > 3 ? '' : 'disabled'}>Delete point</button>
+    <button class="btn sm danger" data-act="dkedit" data-v="del">Delete shape</button>
+    <button class="btn sm primary" data-act="dkedit" data-v="done">Done</button>`;
+  else if (bar) bar.innerHTML = `<span><b>${n}</b> corner${n === 1 ? '' : 's'}${P ? ` in Hold ${P.h}` : ''}</span>
     <button class="btn sm" data-act="dkpoly" data-v="undo" ${n ? '' : 'disabled'}>Undo corner</button>
     <button class="btn sm" data-act="dkpoly" data-v="cancel" ${n ? '' : 'disabled'}>Cancel</button>
     <button class="btn sm primary" data-act="dkpoly" data-v="finish" ${n < 3 ? 'disabled' : ''}>Finish shape</button>`;
@@ -851,6 +900,17 @@ function dkPolyFinish() {
   UI.hold = P.h; pushUndo(); const ho = getHold(d, P.h, true);
   ho.shapes.push({ id: uid(), pod: UI.pod, pol: ship().activePol || null, pts: P.pts.map(q => [clamp((q[0] - z.x0) / (z.x1 - z.x0), 0, 1), clamp(q[1] / g.h, 0, 1)]) });
   UI.dkPoly = null; save(); rerender(); afterStroke('paint');
+}
+// A unit line changed destination (POD) or loading port: carry the painted cargo with it
+function recolorEntry(ho, en, f, old) {
+  const pod0 = f === 'pod' ? old : en.pod, pol0 = f === 'pol' ? old : en.pol, pl = holdPols(ho); ho.pols = pl;
+  const others = ho.entries.filter(x => x !== en && x.pod === pod0 && x.pol === pol0);
+  if (others.length) { toast(`Other ${code(pod0)} units from ${code(pol0)} remain in this hold, so the colour stays. Repaint the changed units with ${code(en.pod)}.`, 5000); return; }
+  let n = 0;
+  ho.cells.forEach((c, i) => { if (c === pod0 && (pl[i] === pol0 || pl[i] == null || !pol0)) { if (f === 'pod') ho.cells[i] = en.pod; else ho.pols[i] = en.pol; n++; } });
+  (ho.shapes || []).forEach(q => { if (q.pod === pod0 && (q.pol === pol0 || !q.pol || !pol0)) { if (f === 'pod') q.pod = en.pod; else q.pol = en.pol; n++; } });
+  save(); if (UI.view === 'hold') drawHoldGrid();
+  if (n && f === 'pod') toast(`Destination changed: ${code(pod0)} cargo now shown as ${code(en.pod)}.`);
 }
 function paintCell(ho, c) { const i = c.y * GC + c.x; if (UI.mode === 'erase' && UI.erasePod && ho.cells[i] !== UI.erasePod) return; ho.cells[i] = UI.mode === 'paint' ? UI.pod : null; ho.pols[i] = UI.mode === 'paint' ? (ship().activePol || null) : null; }
 function afterStroke(mode) {
@@ -948,7 +1008,7 @@ function shapeSvg(s) {
   const y0 = b.y + b.h / 2 - (lines.length - 1) * fs * 1.15 / 2;
   const txt = icon + `<text font-size="${fs}" fill="${tc}" text-anchor="middle" font-weight="700">${lines.map((l, i) => `<tspan x="${cx}" y="${y0 + i * fs * 1.15}" dominant-baseline="middle">${esc(l)}</tspan>`).join('')}</text>`;
   const u = d5UnitsPerPx(), pad = 3 * u;
-  const selBox = sel ? `<rect x="${b.x - pad}" y="${b.y - pad}" width="${b.w + 2 * pad}" height="${b.h + 2 * pad}" fill="none" class="selbox"/>${s.type !== 'free' ? `<circle cx="${b.x + b.w}" cy="${b.y + b.h}" r="${20 * u}" fill="transparent" data-hdl="1"/><circle cx="${b.x + b.w}" cy="${b.y + b.h}" r="${8 * u}" class="hdl" data-hdl="1"/>` : ''}` : '';
+  const selBox = sel && s.type === 'free' ? vertexHandles(s.pts, u, UI.d5.vi) : sel ? `<rect x="${b.x - pad}" y="${b.y - pad}" width="${b.w + 2 * pad}" height="${b.h + 2 * pad}" fill="none" class="selbox"/>${s.type !== 'free' ? `<circle cx="${b.x + b.w}" cy="${b.y + b.h}" r="${20 * u}" fill="transparent" data-hdl="1"/><circle cx="${b.x + b.w}" cy="${b.y + b.h}" r="${8 * u}" class="hdl" data-hdl="1"/>` : ''}` : '';
   return `<g data-id="${s.id}">${body}${txt}${selBox}</g>`;
 }
 function d5VB() {
@@ -976,6 +1036,7 @@ function drawD5() {
   svg.innerHTML = `
     <image href="deck5.png" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/>
     ${ship().deck5.shapes.map(shapeSvg).join('')}
+    ${D5HOLDS.map(z => { const o = ship().holds['5-' + z.h], n = o ? starCount(o.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, D5H / 2, 7 * d5UnitsPerPx(), n) : ''; }).join('')}
     <g id="tmp"></g>`;
   const del = $('#d5Del'); if (del) del.disabled = !UI.d5.sel;
   const un = $('#d5Undo'); if (un) un.disabled = !UI.d5undo.length;
@@ -987,9 +1048,16 @@ function svgPt(e) {
 }
 function clientToD5(x, y) { const svg = $('#d5'), pt = svg.createSVGPoint(); pt.x = x; pt.y = y; const p = pt.matrixTransform(svg.getScreenCTM().inverse()); return [p.x, p.y]; }
 // Straight-line shape: corners are collected one tap at a time
+function vertexHandles(pts, u, selIdx) {
+  let out = '';
+  pts.forEach((q, i) => { const n = pts[(i + 1) % pts.length]; out += `<circle cx="${(q[0] + n[0]) / 2}" cy="${(q[1] + n[1]) / 2}" r="${12 * u}" fill="transparent" data-mi="${i}"/><circle cx="${(q[0] + n[0]) / 2}" cy="${(q[1] + n[1]) / 2}" r="${4.5 * u}" class="midh" data-mi="${i}"/>`; });
+  pts.forEach((q, i) => { out += `<circle cx="${q[0]}" cy="${q[1]}" r="${16 * u}" fill="transparent" data-vi="${i}"/><circle cx="${q[0]}" cy="${q[1]}" r="${(selIdx === i ? 8 : 6.5) * u}" class="vtxh ${selIdx === i ? 'on' : ''}" data-vi="${i}"/>`; });
+  return out;
+}
 function polyDraw(cursor) {
   const tmp = $('#tmp'), bar = $('#polyBar'), P = UI.d5.poly; if (!tmp) return;
   const n = P ? P.length : 0;
+  const selFree = UI.d5.tool === 'select' && UI.d5.sel && ship().deck5.shapes.find(q => q.id === UI.d5.sel && q.type === 'free');
   if (bar) bar.innerHTML = UI.d5.tool !== 'free' ? '' : `<span><b>${n}</b> corner${n === 1 ? '' : 's'}</span>
     <button class="btn sm" data-act="d5poly" data-v="undo" ${n ? '' : 'disabled'}>Undo corner</button>
     <button class="btn sm" data-act="d5poly" data-v="cancel" ${n ? '' : 'disabled'}>Cancel</button>
@@ -1036,9 +1104,15 @@ function bindD5() {
     else if (t === 'rect') drag = { k: 'new', a: p, b: p };
     else if (t === 'free') { drag = { k: 'free', p }; polyDraw(p); }
     else {
-      const hdl = e.target.closest('[data-hdl]'), g = e.target.closest('[data-id]');
-      if (hdl && UI.d5.sel && shape(UI.d5.sel) && shape(UI.d5.sel).type !== 'ev') { const s = shape(UI.d5.sel); pushD5(); drag = { k: 'resize', s, a: p, w: s.w, h: s.h }; }
-      else if (g) { const s = shape(g.dataset.id); UI.d5.sel = s.id; drag = { k: 'move', s, a: p, o: JSON.parse(JSON.stringify(s)), moved: false }; drawD5(); }
+      const hdl = e.target.closest('[data-hdl]'), g = e.target.closest('[data-id]'), vh = e.target.closest('[data-vi]'), mh = e.target.closest('[data-mi]');
+      const selS = UI.d5.sel && shape(UI.d5.sel);
+      if ((vh || mh) && selS && selS.type === 'free') {
+        pushD5(); let i;
+        if (mh) { i = +mh.dataset.mi + 1; selS.pts.splice(i, 0, p); } else i = +vh.dataset.vi;
+        drag = { k: 'vtx', s: selS, i, c: [e.clientX, e.clientY], moved: !!mh, inserted: !!mh }; UI.d5.vi = i; drawD5(); polyDraw();
+      }
+      else if (hdl && UI.d5.sel && shape(UI.d5.sel) && shape(UI.d5.sel).type !== 'ev') { const s = shape(UI.d5.sel); pushD5(); drag = { k: 'resize', s, a: p, w: s.w, h: s.h }; }
+      else if (g) { const s = shape(g.dataset.id); if (UI.d5.sel !== s.id) { UI.d5.vi = null; if (s.type === 'free') toast('Edit points: drag a corner to move it, drag a small dot to add one. Tap a corner, then the bin, to delete it.', 4500); } UI.d5.sel = s.id; polyDraw(); drag = { k: 'move', s, a: p, o: JSON.parse(JSON.stringify(s)), moved: false }; drawD5(); }
       else drag = { k: 'pan', c: [e.clientX, e.clientY], vb0: { ...d5VB() }, upp: 1 / svg.getScreenCTM().a, moved: false };
     }
   };
@@ -1070,7 +1144,8 @@ function bindD5() {
       if (s.type === 'free') s.pts = o.pts.map(q => [clamp(q[0] + dx, 0, D5W), clamp(q[1] + dy, 0, D5H)]);
       else { s.x = clamp(o.x + dx, 0, D5W - s.w); s.y = clamp(o.y + dy, 0, D5H - s.h); }
       drawD5();
-    } else if (drag.k === 'resize') { const s = drag.s; s.w = clamp(drag.w + p[0] - drag.a[0], 4, D5W - s.x); s.h = clamp(drag.h + p[1] - drag.a[1], 3, D5H - s.y); drawD5(); }
+    } else if (drag.k === 'vtx') { if (Math.hypot(e.clientX - drag.c[0], e.clientY - drag.c[1]) > 4) drag.moved = true; if (drag.moved) { drag.s.pts[drag.i] = p; drawD5(); } }
+    else if (drag.k === 'resize') { const s = drag.s; s.w = clamp(drag.w + p[0] - drag.a[0], 4, D5W - s.x); s.h = clamp(drag.h + p[1] - drag.a[1], 3, D5H - s.y); drawD5(); }
   };
   svg.onpointerup = svg.onpointercancel = e => {
     touches.delete(e.pointerId);
@@ -1078,7 +1153,7 @@ function bindD5() {
     if (blocked) { if (!touches.size) blocked = false; return; }
     if (!drag) return; const d = drag; drag = null;
     if (e.type === 'pointercancel') { const t = $('#tmp'); if (t) t.innerHTML = ''; return; }
-    if (d.k === 'pan') { if (!d.moved) { UI.d5.sel = null; drawD5(); } }
+    if (d.k === 'pan') { if (!d.moved) { UI.d5.sel = null; UI.d5.vi = null; drawD5(); polyDraw(); } }
     else if (d.k === 'erase' && !d.moved) {
       if (UI.erasePod && d.s.pod !== UI.erasePod) { toast(`This is ${d.s.type === 'ev' ? 'an EV mark' : code(d.s.pod) + ' cargo'}. Only ${code(UI.erasePod)} is selected for discharge.`); return; }
       const s = d.s, what = s.type === 'ev' ? 'this EV mark' : s.type === 'mafi' ? `${code(s.pod)}/${code(s.pol)} ${s.mafis.length > 1 ? 'MAFI stack (' + s.mafis.length + ')' : ('MAFI ' + (s.mafis[0].no || '')).trim()}` : s.type === 'pkg' ? `${code(s.pod)}/${code(s.pol)} package (${fmt(num(s.pkgs))} PKGs)` : `${code(s.pod)}/${code(s.pol)}${num(s.units) ? ' ' + fmt(num(s.units)) + ' units' : ''}${s.label ? ' ' + s.label : ''}`;
@@ -1113,6 +1188,7 @@ function bindD5() {
       polyDraw();
     } else if (d.k === 'move') { if (!d.moved) openSheet(d.s); else save(); }
     else if (d.k === 'resize') save();
+    else if (d.k === 'vtx') { if (!d.moved) UI.d5undo.pop(); save(); drawD5(); polyDraw(); }
   };
 }
 function sheetBody(s) {
@@ -1190,7 +1266,9 @@ function drawD5Canvas(ctx, W, H, sh, o = {}) {
   const x0 = o.x0 ?? 0, x1 = o.x1 ?? D5W;
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.save(); ctx.scale(W / (x1 - x0), H / D5H); ctx.translate(-x0, 0);
   if (D5IMG.complete && D5IMG.naturalWidth) ctx.drawImage(D5IMG, 0, 0, D5W, D5H);
-  drawD5Shapes(ctx, sh, true, o.pol); ctx.restore();
+  drawD5Shapes(ctx, sh, true, o.pol);
+  D5HOLDS.forEach(z => { const hd = sh.holds['5-' + z.h], n = hd ? starCount(hd.height) : 0; if (n) drawStars(ctx, (z.x0 + z.x1) / 2, D5H / 2, 6, n); });
+  ctx.restore();
 }
 
 /* =========================================================
@@ -1238,6 +1316,9 @@ function stowagePage(K, title, pol) {
   AT({ ...base, startY: 24, tableWidth: 180, head: [['POD', 'Hold 4', 'Hold 3', 'Hold 2', 'Hold 1', 'Units', 'PKGs', 'MT statics']],
     body: pods.length ? pods.map(pod => { const m = rows.filter(r => r.pod === pod), a = sumRows(m); return [podCell(pod), ...[4, 3, 2, 1].map(h => fmt(m.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(a.units), fmt(a.pkgs), fmt(a.mt, 1)]; }) : [['No cargo', '', '', '', '', '', '', '']],
     foot: [['Total', ...[4, 3, 2, 1].map(h => fmt(rows.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(tot.units), fmt(tot.pkgs), fmt(tot.mt, 1)]] });
+  const sx = 200, sy = 23;
+  const pdfStar = (cx, cy, r) => { const p = starPts(cx, cy, r); doc.setFillColor(14, 32, 54); doc.lines(p.slice(1).map((q, i) => [q[0] - p[i][0], q[1] - p[i][1]]), p[0][0], p[0][1], [1, 1], 'F', true); };
+  doc.setFontSize(7.5); pdfStar(sx, sy - 1, 1.3); doc.text('Unit height 1.8 - 2.1 m', sx + 3, sy); pdfStar(sx + 36, sy - 1, 1.3); pdfStar(sx + 39, sy - 1, 1.3); doc.text('Unit height over 2.1 m', sx + 42, sy);
   const y = doc.lastAutoTable.finalY + 3, ih = 210 - y - 7;
   const cv = document.createElement('canvas'); cv.width = 2000; cv.height = Math.round(2000 * ih / Math.min(277, ih * 1.5));
   drawShip(cv.getContext('2d'), cv.width, cv.height, sh, LIGHT, pol);
@@ -1384,11 +1465,18 @@ document.addEventListener('click', async e => {
       save(); rerender(); break;
     }
     // hold editor
-    case 'mode': UI.mode = v; UI.dkPoly = null; rerender(); break;
+    case 'mode': UI.mode = v; UI.dkPoly = null; UI.dkSel = null; rerender(); break;
+    case 'dkedit': { const r = dkSelShape(); if (!r) break;
+      if (v === 'done') { UI.dkSel = null; drawHoldGrid(); }
+      else if (v === 'vdel' && UI.dkSel.vi != null && r.q.pts.length > 3) { pushUndo(); r.q.pts.splice(UI.dkSel.vi, 1); UI.dkSel.vi = null; save(); drawHoldGrid(); }
+      else if (v === 'del' && await confirmBox('Delete this shape?')) { pushUndo(); r.ho.shapes = r.ho.shapes.filter(x => x.id !== r.q.id); UI.dkSel = null; save(); rerender(); afterStroke('erase'); }
+      break; }
     case 'pickErase': UI.erasePod = v || null; if (UI.view === 'deck5') { $('#d5Tools').innerHTML = d5ToolsHtml(); } else rerender(); break;
     case 'dkpoly': if (v === 'finish') dkPolyFinish(); else if (v === 'cancel') { UI.dkPoly = null; dkPolyDraw(); } else if (UI.dkPoly) { UI.dkPoly.pts.pop(); if (!UI.dkPoly.pts.length) UI.dkPoly = null; dkPolyDraw(); } break;
-    case 'pickPod': UI.pod = v; $$('.chip').forEach(c => c.classList.toggle('on', c.dataset.v === v)); { const f = $('[data-act="fillHold"]'); if (f) f.textContent = 'Fill with ' + code(v); } break;
+    case 'pickPod': UI.pod = v; $$('.chip').forEach(c => c.classList.toggle('on', c.dataset.v === v)); { const f = $('[data-act="fillHold"]'); if (f) f.textContent = `Fill Hold ${UI.hold} with ${code(v)}`; const r = $('[data-act="fillRest"]'); if (r) r.textContent = `Fill remaining of Hold ${UI.hold} with ${code(v)}`; } break;
     case 'undo': { const ho = getHold(UI.deck, UI.hold, true); if (UI.undo.length) { const u = UI.undo.pop(); ho.cells = u.cells; ho.pols = u.pols || holdPols({ cells: u.cells, entries: ho.entries }); ho.arrows = u.arrows; ho.evs = u.evs || []; ho.shapes = u.shapes || []; if (UI.mode === 'ev' || UI.mode === 'arrow') rerender(); else { drawHoldGrid(); refreshHoldMeta(); } save(); } break; }
+    case 'brush': UI.brush = v === 'rect' ? 'rect' : +v; $$('[data-act=brush]').forEach(x => x.classList.toggle('on', x.dataset.v === v)); break;
+    case 'fillRest': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); let n = 0; ho.cells.forEach((c, i) => { if (!c) { ho.cells[i] = UI.pod; ho.pols[i] = sh.activePol || null; n++; } }); if (!n) { UI.undo.pop(); toast('Hold ' + UI.hold + ' has no empty space left.'); break; } drawHoldGrid(); afterStroke('paint'); } break;
     case 'fillHold': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.fill(UI.pod); ho.pols.fill(sh.activePol || null); drawHoldGrid(); afterStroke('paint'); } break;
     case 'clearEvs': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.evs.length} EV marks from this hold?`, 'Remove EV marks')) { pushUndo(); ho.evs = []; save(); rerender(); } break; }
     case 'clearArrows': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.arrows.length} arrows from this hold?`, 'Remove arrows')) { pushUndo(); ho.arrows = []; save(); rerender(); } break; }
@@ -1402,10 +1490,11 @@ document.addEventListener('click', async e => {
     }
     case 'addEntry': { const ho = getHold(UI.deck, UI.hold, true); if (!dischPorts().length) { toast('Add a discharging port first.'); break; } ho.entries.push({ id: uid(), pod: UI.pod || dischPorts()[0].id, pol: sh.activePol || '', units: '', brand: '' }); save(); $('#entries').innerHTML = entriesHtml(ho); const last = $$('#entries .entry').pop(); last && $('[data-ebind="units"]', last).focus(); break; }
     case 'delEntry': { const ho = getHold(UI.deck, UI.hold, true); const en = ho.entries.find(x => x.id === id); if (await confirmBox(`Remove ${en.units || 0} ${code(en.pod)} units from this hold?`, 'Remove')) { ho.entries = ho.entries.filter(x => x.id !== id); save(); $('#entries').innerHTML = entriesHtml(ho); refreshHoldMeta(); } break; }
-    case 'navDeck': { UI.dkPoly = null; const d = +v; if (d === 5) { UI.view = 'deck5'; UI.d5.zoom = null; UI.d5.vb = null; UI.d5.sel = null; UI.d5undo = []; } else { UI.view = 'hold'; UI.deck = d; if (!holdsFor(d).includes(UI.hold)) UI.hold = holdsFor(d)[0]; UI.undo = []; UI.dv.vb = null; } render(); break; }
-    case 'navHold': UI.dkPoly = null; if (UI.view === 'deck5') { UI.d5.zoom = v === 'all' ? null : +v; UI.d5.vb = null; render(); } else { UI.dv.vb = null; if (v === 'all') { UI.dv.all = true; } else { UI.dv.all = false; UI.hold = +v; UI.undo = []; } render(); } break;
+    case 'navDeck': { UI.dkPoly = null; UI.dkSel = null; const d = +v; if (d === 5) { UI.view = 'deck5'; UI.d5.zoom = null; UI.d5.vb = null; UI.d5.sel = null; UI.d5undo = []; } else { UI.view = 'hold'; UI.deck = d; if (!holdsFor(d).includes(UI.hold)) UI.hold = holdsFor(d)[0]; UI.undo = []; UI.dv.vb = null; } render(); break; }
+    case 'navHold': UI.dkPoly = null; UI.dkSel = null; if (UI.view === 'deck5') { UI.d5.zoom = v === 'all' ? null : +v; UI.d5.vb = null; render(); } else { UI.dv.vb = null; if (v === 'all') { UI.dv.all = true; } else { UI.dv.all = false; UI.hold = +v; UI.undo = []; } render(); } break;
     // deck 5
     case 'd5tool': setTool(v); break;
+    case 'd5vdel': { const q = sh.deck5.shapes.find(x => x.id === UI.d5.sel); if (q && q.type === 'free' && UI.d5.vi != null && q.pts.length > 3) { pushD5(); q.pts.splice(UI.d5.vi, 1); UI.d5.vi = null; save(); drawD5(); polyDraw(); } break; }
     case 'd5EraseAll': { const ep = UI.erasePod, n = sh.deck5.shapes.filter(q => q.pod === ep).length; if (!n) { toast(`No ${code(ep)} cargo on Deck 5.`); break; }
       if (await confirmBox(`Discharge all ${code(ep)} cargo from Deck 5 (${n} item${n === 1 ? '' : 's'})?`, 'Discharge')) { pushD5(); sh.deck5.shapes = sh.deck5.shapes.filter(q => q.pod !== ep); UI.d5.sel = null; save(); drawD5(); toast('Discharged. Undo brings it back.'); } break; }
     case 'd5poly': if (v === 'finish') polyFinish(); else if (v === 'cancel') { UI.d5.poly = null; polyDraw(); } else if (UI.d5.poly) { UI.d5.poly.pop(); polyDraw(); } break;
@@ -1413,7 +1502,8 @@ document.addEventListener('click', async e => {
       const w = clamp(vb.w * f, 30, Math.min(g.w, g.h * vb.w / vb.h)), h = w * vb.h / vb.w; dkApply(dkClamp({ x: cx - w / 2, y: cy - h / 2, w, h })); drawHoldGrid(); break; }
     case 'd5undo': if (UI.d5undo.length) { sh.deck5.shapes = JSON.parse(UI.d5undo.pop()); UI.d5.sel = null; save(); render(); } break;
     case 'd5zoom': { const vb = d5VB(), cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2; if (v === 'fit') { UI.d5.vb = null; UI.d5.zoom = null; render(); } else zoomAt(v === 'in' ? 1 / 1.6 : 1.6, cx, cy); break; }
-    case 'd5Del': { const s = sh.deck5.shapes.find(x => x.id === UI.d5.sel); if (s && await confirmBox('Delete the selected item from Deck 5?')) { pushD5(); sh.deck5.shapes = sh.deck5.shapes.filter(x => x.id !== s.id); UI.d5.sel = null; save(); drawD5(); } break; }
+    case 'd5Del': if (UI.d5.vi != null) { const q = sh.deck5.shapes.find(x => x.id === UI.d5.sel); if (q && q.type === 'free') { if (q.pts.length <= 3) { toast('A shape needs at least 3 corners.'); break; } pushD5(); q.pts.splice(UI.d5.vi, 1); UI.d5.vi = null; save(); drawD5(); toast('Point deleted.'); break; } }
+    {  const s = sh.deck5.shapes.find(x => x.id === UI.d5.sel); if (s && await confirmBox('Delete the selected item from Deck 5?')) { pushD5(); sh.deck5.shapes = sh.deck5.shapes.filter(x => x.id !== s.id); UI.d5.sel = null; save(); drawD5(); } break; }
     // export
     case 'makePdf': {
       b.disabled = true; b.textContent = 'Creating PDF…';
@@ -1446,10 +1536,13 @@ document.addEventListener('input', e => {
     if (t.dataset.pbind === 'code' || t.dataset.pbind === 'name') { const li = t.closest('.prow'); $('.pinfo b', li).textContent = p.code; $('.pinfo span', li).textContent = p.name; const r = $('#rot'); if (r) r.textContent = rotation(sh); }
   } else if (t.dataset.hbind) {
     const [d, h] = t.dataset.hbind.split('-').map(Number); getHold(d, h, true).height = t.value; save();
+    if (UI.view === 'hold') drawHoldGrid(); else if (UI.view === 'deck5') drawD5();
   } else if (t.dataset.ebind) {
     const ho = getHold(UI.deck, UI.hold, true), en = ho.entries.find(x => x.id === t.closest('.entry').dataset.id);
-    en[t.dataset.ebind] = t.value; save();
-    if (t.dataset.ebind === 'pod') $('.dot', t.closest('.entry')).style.background = colorOf(t.value);
+    const f = t.dataset.ebind, old = en[f];
+    en[f] = t.value; save();
+    if ((f === 'pod' || f === 'pol') && old && old !== t.value) recolorEntry(ho, en, f, old);
+    if (f === 'pod') $('.dot', t.closest('.entry')).style.background = colorOf(t.value);
     refreshHoldMeta();
   }
 });
