@@ -11,39 +11,31 @@ const LASH = [
   { k: 'c15', name: 'BL 15T chain', sh: '15T chain', swl: 3.75, ok: [20, 100], grey: [105, 125], c: '#ff99cc' },
   { k: 'c20', name: 'BL 20T chain', sh: '20T chain', swl: 5.0, ok: [20, 125], grey: null, c: '#ffc000' }
 ];
-const LROWS = [5, 7.5, 10, 12.5, 15, 17.5, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125];
-// For each lashing material: number per unit and status ok / grey (avoid if others available) / no (not recommended)
+// K Line rule only: Required number = cargo weight (t) x 1.2 / SWL, rounded up to a whole lashing.
+// BL 20T chain is shown for information only (no longer used; only if nothing else is available).
 function lashing(wt) {
   wt = num(wt); if (wt < 5) return null;
-  const row = LROWS.find(r => r >= wt - 1e-9) ?? wt, beyond = wt > 125;
-  return LASH.map(t => {
-    const n = 2 * Math.ceil(row * 1.2 / t.swl / 2 - 1e-9);
-    const st = beyond ? 'no' : row >= t.ok[0] && row <= t.ok[1] ? 'ok' : t.grey && row >= t.grey[0] && row <= t.grey[1] ? 'grey' : 'no';
-    return { ...t, n, st, row, beyond };
-  });
+  return LASH.map(t => ({ ...t, n: Math.ceil(wt * 1.2 / t.swl - 1e-9), st: t.k === 'c20' ? 'last' : 'ok' }));
 }
-// Chosen material: the ship's preference if acceptable, otherwise the acceptable one with the fewest lashings
+// Chosen material: the preferred one if set, otherwise the fewest lashings — never BL 20T chain
 function lashPick(wt, pref) {
   const L = lashing(wt); if (!L) return null;
-  const p = pref && pref !== 'auto' ? L.find(x => x.k === pref && x.st === 'ok') : null;
-  if (p) return p;
-  const ok = L.filter(x => x.st === 'ok'); if (ok.length) return ok.reduce((a, b) => (b.n < a.n ? b : a));
-  const grey = L.filter(x => x.st === 'grey'); if (grey.length) return grey.reduce((a, b) => (b.n < a.n ? b : a));
-  return L.reduce((a, b) => (b.n < a.n ? b : a));
+  const usable = L.filter(x => x.k !== 'c20');
+  return (pref && pref !== 'auto' && usable.find(x => x.k === pref)) || usable.reduce((a, b) => (b.n < a.n ? b : a));
 }
 function lashHintHtml(wt, units) {
   const L = lashing(wt); if (!L) return '';
-  const pick = lashPick(wt, ship().lashPref), u = num(units);
-  const alts = L.filter(x => x.st !== 'no' && x.k !== pick.k).map(x => `${x.n}× ${x.sh}${x.st === 'grey' ? ' (avoid)' : ''}`).join(', ');
-  return `<div class="lash-hint"><b>≥5 MT, ${fmt(num(wt), 1)} t:</b> ${pick.n}× ${esc(pick.n ? pick.sh : '')} per unit${u > 1 ? `, <b>${pick.n * u} total</b> for ${fmt(u)} units` : ''}${pick.beyond ? ' (above table, check)' : ''}${alts ? `<br><span class="muted">Or: ${esc(alts)}</span>` : ''}</div>`;
+  const pick = lashPick(wt, ship().lashPref), u = num(units), c20 = L.find(x => x.k === 'c20');
+  const alts = L.filter(x => x.k !== pick.k && x.k !== 'c20').map(x => `${x.n}× ${x.sh}`).join(', ');
+  return `<div class="lash-hint"><b>≥5 MT, ${fmt(num(wt), 2)} t:</b> ${pick.n}× ${esc(pick.sh)} per unit${u > 1 ? `, <b>${pick.n * u} total</b> for ${fmt(u)} units` : ''}${alts ? `<br><span class="muted">Or: ${esc(alts)}</span>` : ''}<br><span class="muted">20T chain: ${c20.n} (only if no other material)</span></div>`;
 }
-function lashTableHtml(wt) {
+function lashTableHtml(wt, units) {
   const L = lashing(wt);
-  if (!L) return `<p class="muted">Units under 5 MT: standard lashing.</p>`;
-  const pick = lashPick(wt, ship().lashPref);
-  return `<table class="tbl lash"><thead><tr><th>Material</th><th>SWL</th><th>Per unit</th><th>Use</th></tr></thead><tbody>
-    ${L.map(x => `<tr class="${x.st}${x.k === pick.k ? ' pick' : ''}"><td><i class="dot" style="background:${x.c}"></i>${x.name}</td><td>${x.swl} t</td><td><b>${x.n}</b></td><td>${x.st === 'ok' ? (x.k === pick.k ? 'Chosen' : 'OK') : x.st === 'grey' ? 'Avoid if others available' : 'Not recommended'}</td></tr>`).join('')}
-    </tbody></table>${L[0].beyond ? '<p class="hint">Weight is above the 125 t table: numbers come from the formula only.</p>' : `<p class="hint">Table row used: ${L[0].row} t.</p>`}`;
+  if (!L) return num(wt) > 0 ? `<p class="muted">Under 5 MT: standard lashing.</p>` : '';
+  const pick = lashPick(wt, ship().lashPref), u = num(units);
+  return `<table class="tbl lash"><thead><tr><th>Material</th><th>SWL</th><th>Per unit</th>${u > 1 ? '<th>Total</th>' : ''}<th>Use</th></tr></thead><tbody>
+    ${L.map(x => `<tr class="${x.k === 'c20' ? 'no' : ''}${x.k === pick.k ? ' pick' : ''}"><td><i class="dot" style="background:${x.c}"></i>${x.name}</td><td>${x.swl} t</td><td><b>${x.n}</b></td>${u > 1 ? `<td>${x.n * u}</td>` : ''}<td>${x.k === pick.k ? 'Chosen' : x.k === 'c20' ? 'Only if nothing else' : ''}</td></tr>`).join('')}
+    </tbody></table><p class="hint">${fmt(num(wt), 2)} t × 1.2 ÷ SWL, rounded up.</p>`;
 }
 // Every loaded item with a weight per unit of 5 t or more
 function heavyLoaded(sh = ship()) {
@@ -289,17 +281,11 @@ function tabPlanHtml() {
     }).join('');
   }
   const pref = sh.lashPref || 'auto';
-  const lashCalc = `<h2 class="sh">Lashing for units ≥ 5 MT</h2>
-  <div class="card">
-    <p class="muted">Required number = cargo weight × 1.2 / SWL, rounded up to an even number (K Line rule and matrix).</p>
-    <div class="grid2"><label class="fld"><span>Cargo weight per unit (t)</span><input inputmode="decimal" id="lashW" value="${esc(UI.lashW || '')}" placeholder="e.g. 27.8"></label>
-    <label class="fld"><span>Preferred material</span><select data-pact="pref"><option value="auto" ${pref === 'auto' ? 'selected' : ''}>Fewest lashings (auto)</option>${LASH.map(t => `<option value="${t.k}" ${pref === t.k ? 'selected' : ''}>${t.name}</option>`).join('')}</select></label></div>
-    <div id="lashOut">${UI.lashW ? lashTableHtml(UI.lashW) : ''}</div>
-  </div>`;
+  const lashCalc = `<h2 class="sh">Lashing for units ≥ 5 MT</h2>${lashCalcCard()}`;
   const hv = heavyLoaded(sh), tot = {}; hv.forEach(r => { tot[r.pick.k] = (tot[r.pick.k] || 0) + r.pick.n * r.units; });
   const heavyLoadedHtml = `<div class="card"><h2 class="ch">Loaded units ≥ 5 MT</h2>
     ${hv.length ? `<div class="tblwrap"><table class="tbl wrap"><thead><tr><th>Deck/Hold</th><th>POD/POL</th><th>Model</th><th>Units</th><th>t</th><th>Lashing per unit</th><th>Total</th></tr></thead><tbody>
-    ${hv.map(r => `<tr><td>DK${r.deck} H${r.hold}</td><td><i class="dot" style="background:${colorOf(r.pod)}"></i>${esc(code(r.pod))}/${esc(code(r.pol))}</td><td>${esc(r.model || '–')}</td><td>${fmt(r.units)}</td><td>${fmt(r.wt, 1)}</td><td>${r.pick.n}× ${esc(r.pick.sh)}${r.pick.st !== 'ok' ? ' ⚠' : ''}</td><td><b>${r.pick.n * r.units}</b></td></tr>`).join('')}
+    ${hv.map(r => `<tr><td>DK${r.deck} H${r.hold}</td><td><i class="dot" style="background:${colorOf(r.pod)}"></i>${esc(code(r.pod))}/${esc(code(r.pol))}</td><td>${esc(r.model || '–')}</td><td>${fmt(r.units)}</td><td>${fmt(r.wt, 1)}</td><td>${r.pick.n}× ${esc(r.pick.sh)}</td><td><b>${r.pick.n * r.units}</b></td></tr>`).join('')}
     </tbody></table></div><p><b>Totals:</b> ${LASH.filter(t => tot[t.k]).map(t => `${tot[t.k]}× ${t.name}`).join(', ')}</p>` : '<p class="muted">Enter the weight per unit (t) in a unit line, or pick a model from the booking list, and units of 5 t or more appear here with their lashing.</p>'}</div>`;
   let bookedHeavy = '';
   if (b) {
@@ -311,8 +297,8 @@ function tabPlanHtml() {
         list.forEach(r => { const pk = lashPick(r.kg / 1000, pref); tt[pk.k] = (tt[pk.k] || 0) + pk.n * r.units; });
         return `<details class="pol-group" ${pid === sh.activePol ? 'open' : ''}><summary>${esc(P(pid).name)} (${esc(code(pid))}): ${fmt(list.reduce((a, r) => a + r.units, 0))} units, ${LASH.filter(t => tt[t.k]).map(t => `${tt[t.k]}× ${t.sh}`).join(', ')}</summary>
         <div class="tblwrap"><table class="tbl wrap"><thead><tr><th>POD</th><th>Maker / model</th><th>Units</th><th>t</th><th>Per unit</th><th>Total</th></tr></thead><tbody>
-        ${list.map(r => { const pk = lashPick(r.kg / 1000, pref); return `<tr><td>${esc(bkPort(r.d) ? code(bkPort(r.d)) : r.d)}</td><td>${esc(r.maker)} ${esc(r.model)}</td><td>${fmt(r.units)}</td><td>${fmt(r.kg / 1000, 1)}</td><td>${pk.n}× ${esc(pk.sh)}${pk.st !== 'ok' ? ' ⚠' : ''}</td><td><b>${pk.n * r.units}</b></td></tr>`; }).join('')}
-        </tbody></table></div></details>`; }).join('')}<p class="hint">⚠ = only a material from the grey or not-recommended zone fits; check.</p></div>`;
+        ${list.map(r => { const pk = lashPick(r.kg / 1000, pref); return `<tr><td>${esc(bkPort(r.d) ? code(bkPort(r.d)) : r.d)}</td><td>${esc(r.maker)} ${esc(r.model)}</td><td>${fmt(r.units)}</td><td>${fmt(r.kg / 1000, 1)}</td><td>${pk.n}× ${esc(pk.sh)}</td><td><b>${pk.n * r.units}</b></td></tr>`; }).join('')}
+        </tbody></table></div></details>`; }).join('')}</div>`;
     }
   }
   let search = '';
@@ -330,9 +316,33 @@ function bookingResults(res, t) {
     ${res.map(r => `<tr><td>${esc(r.l)}→${esc(r.d)}${r.pod && r.pod !== r.d ? ` (${esc(r.pod)})` : ''}</td><td>${esc(r.maker)} ${esc(r.model)}<br><span class="muted">${esc(r.bid)}</span></td><td>${fmt(r.units)}</td><td>${fmt(r.len)}×${fmt(r.wid)}×${fmt(r.hgt)}</td><td>${fmt(r.kg / 1000, 2)}</td><td>${[r.ev ? 'EV' : '', r.st ? 'Static' : '', r.mafi ? 'MAFI ' + r.mafi : '', r.kg >= 5000 ? '≥5 MT' : ''].filter(Boolean).join(', ')}</td></tr>`).join('')}
     </tbody></table></div>`;
 }
+function lashCalcCard() {
+  const pref = ship().lashPref || 'auto';
+  return `<div class="card">
+    <p class="muted">Required number = cargo weight × 1.2 / SWL (K Line rule), rounded up.</p>
+    <div class="grid2"><label class="fld"><span>Weight per unit (t)</span><input inputmode="decimal" id="lashW" value="${esc(UI.lashW || '')}" placeholder="e.g. 27.8"></label>
+    <label class="fld"><span>Number of units</span><input inputmode="numeric" id="lashU" value="${esc(UI.lashU || '')}" placeholder="1"></label></div>
+    <label class="fld"><span>Preferred material</span><select data-pact="pref"><option value="auto" ${pref === 'auto' ? 'selected' : ''}>Fewest lashings (auto)</option>${LASH.filter(t => t.k !== 'c20').map(t => `<option value="${t.k}" ${pref === t.k ? 'selected' : ''}>${t.name}</option>`).join('')}</select></label>
+    <div id="lashOut">${lashTableHtml(UI.lashW, UI.lashU)}</div>
+  </div>`;
+}
+function bindLashCalc() {
+  const upd = () => { $('#lashOut').innerHTML = lashTableHtml(UI.lashW, UI.lashU); };
+  const w = $('#lashW'), u = $('#lashU');
+  if (w) w.oninput = () => { UI.lashW = w.value; upd(); };
+  if (u) u.oninput = () => { UI.lashU = u.value; upd(); };
+}
+function renderLash() {
+  app.innerHTML = `<header class="top"><button class="ic" data-act="home" aria-label="Back">${I.back}</button><div class="ttl"><b>Lashing calculator</b><span>Units of 5 MT and over</span></div></header>
+  <main class="lash-main">${lashCalcCard()}
+  <div class="card"><h2 class="ch">Lashing materials</h2><table class="tbl"><thead><tr><th>Material</th><th>Breaking load</th><th>SWL</th></tr></thead><tbody>
+  ${LASH.map(t => `<tr class="${t.k === 'c20' ? 'no' : ''}"><td><i class="dot" style="background:${t.c}"></i>${t.name}</td><td>${t.name.match(/\d+/)[0]} t</td><td>${t.swl} t</td></tr>`).join('')}
+  </tbody></table><p class="hint">SWL = ¼ of breaking load (CSS Code annex 13). 1.2 = K Line safety factor. BL 20T chain is no longer used: shown only for when no other material is available.</p></div></main>`;
+  bindLashCalc(); setTimeout(() => { const w = $('#lashW'); if (w && !UI.lashW) w.focus(); }, 100);
+}
 function afterPlanTab() {
+  bindLashCalc();
   const f = $('#preplanFile'); if (f) f.onchange = () => { if (f.files[0]) importPreplan(f.files[0]); };
-  const w = $('#lashW'); if (w) w.oninput = () => { UI.lashW = w.value; $('#lashOut').innerHTML = w.value ? lashTableHtml(w.value) : ''; };
   const s = $('#bkSearch'); if (s) s.oninput = () => { UI.bkQuery = s.value; const t = s.value.trim().toUpperCase(), b = ship().booking; $('#bkRes').innerHTML = bookingResults(t.length < 2 ? [] : b.rows.filter(r => `${r.maker} ${r.model} ${r.bid} ${r.l} ${r.d} ${r.pod} ${r.shipper}`.toUpperCase().includes(t)).slice(0, 60), t); };
 }
 

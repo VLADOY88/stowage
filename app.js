@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 20;
+const APP_VERSION = 21;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -269,7 +269,7 @@ function render() {
   const y = window.scrollY;
   app.className = 'view-' + UI.view;
   if (UI.view !== 'sop') window.onscroll = null;
-  ({ home: renderHome, plan: renderPlan, hold: renderHold, deck5: renderDeck5, sop: renderSop })[UI.view]();
+  ({ home: renderHome, plan: renderPlan, hold: renderHold, deck5: renderDeck5, sop: renderSop, lash: renderLash })[UI.view]();
   if (UI.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
   UI.keepScroll = false;
 }
@@ -305,6 +305,7 @@ function renderHome() {
     <p class="home-meta">Voyage ${esc(sh.voyage || '–')}${sh.depDate ? ', ' + esc(new Date(sh.depDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })) : ''}</p>
     <p class="home-rot">${esc(rotation(sh)) || 'No ports added yet'}</p>
     <button class="btn primary big" data-act="open">Open stowage plan</button>
+    <button class="btn big sop-btn" data-act="lashCalc"><span>Lashing calculator</span><small>Units of 5 MT and over, K Line rule</small></button>
     ${sopHomeHtml()}
     <p class="home-foot">App version ${APP_VERSION}. Everything is saved on this iPhone and works without internet.${S.savedAt ? ' Last saved ' + new Date(S.savedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) + '.' : ''}</p>
   </main>`;
@@ -1430,10 +1431,10 @@ async function buildPdf() {
   const hv = heavyLoaded(sh);
   doc.addPage(); header('LASHING – UNITS 5 MT AND OVER');
   AT({ ...base, startY: 24, head: [['Deck', 'Hold', 'POD', 'POL', 'Model', 'Units', 't / unit', 'Lashing material', 'Per unit', 'Total']],
-    body: hv.length ? hv.map(r => [`DK ${r.deck}`, `Hold ${r.hold}`, podCell(r.pod), code(r.pol), r.model || '-', fmt(r.units), fmt(r.wt, 1), r.pick.n ? r.pick.sh + (r.pick.st !== 'ok' ? ' (check)' : '') : '-', r.pick.n, { content: String(r.pick.n * r.units), styles: { fontStyle: 'bold' } }]) : [['', '', '', '', 'No loaded units of 5 t or more', '', '', '', '', '']] });
+    body: hv.length ? hv.map(r => [`DK ${r.deck}`, `Hold ${r.hold}`, podCell(r.pod), code(r.pol), r.model || '-', fmt(r.units), fmt(r.wt, 1), r.pick.sh, r.pick.n, { content: String(r.pick.n * r.units), styles: { fontStyle: 'bold' } }]) : [['', '', '', '', 'No loaded units of 5 t or more', '', '', '', '', '']] });
   const lt = {}; hv.forEach(r => { lt[r.pick.k] = (lt[r.pick.k] || 0) + r.pick.n * r.units; });
   if (hv.length) AT({ ...base, startY: doc.lastAutoTable.finalY + 5, tableWidth: 110, head: [['Lashing material', 'Total needed']], body: LASH.filter(t => lt[t.k]).map(t => [t.name, String(lt[t.k])]) });
-  doc.setFontSize(7); doc.text('Required number = cargo weight x 1.2 / SWL (SWL = 1/4 of breaking load), rounded up to an even number, per K Line lashing matrix.', 10, doc.lastAutoTable.finalY + 5);
+  doc.setFontSize(7); doc.text('Required number = cargo weight x 1.2 / SWL (K Line rule; SWL = 1/4 of breaking load), rounded up. BL 20T chain is not used.', 10, doc.lastAutoTable.finalY + 5);
 
   footer();
   return { blob: doc.output('blob'), name: fileBase.replace('%', 'Stowage_Plan') };
@@ -1472,6 +1473,7 @@ document.addEventListener('click', async e => {
   switch (a) {
     case 'open': UI.view = 'plan'; UI.tab = 'ship'; render(); break;
     case 'home': UI.view = 'home'; render(); break;
+    case 'lashCalc': UI.view = 'lash'; render(); break;
     case 'tab': UI.tab = v; render(); break;
     case 'toShip': UI.view = 'plan'; UI.tab = 'ship'; render(); break;
     case 'openD5': UI.view = 'deck5'; UI.d5.zoom = null; render(); break;

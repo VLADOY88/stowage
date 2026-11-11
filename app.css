@@ -329,3 +329,7 @@ details.pol-group { margin: 6px 0; } details.pol-group summary { font-weight: 80
 .toc.res button span { font-size: 14px; }
 mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; padding: 0 2px; }
 @media (orientation: landscape) and (max-height: 500px) { .sop-tip { display: none; } .sop-pages { padding-left: calc(env(safe-area-inset-left, 0px) + 6px); padding-right: calc(env(safe-area-inset-right, 0px) + 6px); } }
+.lash-main { padding: 0 0 20px; }
+.tbl.lash tr.no td, .tbl tr.no td { opacity: .5; }
+.tbl.lash td:last-child, .tbl.lash th:last-child { white-space: normal; min-width: 70px; }
+.tbl.lash td, .tbl.lash th { padding-left: 4px; padding-right: 4px; }
