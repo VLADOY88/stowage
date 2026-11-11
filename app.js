@@ -311,14 +311,14 @@ function renderHome() {
       if (n) { const s = newShip(n); S.ships.push(s); S.shipId = s.id; save(); }
       render(); return;
     }
-    S.shipId = e.target.value; save(); render();
+    S.shipId = e.target.value; save(); await loadPlanImages(); render();
   };
 }
 
 /* =========================================================
    PLAN (tabs)
    ========================================================= */
-const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFI/PKG'], ['export', 'Export']];
+const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFI/PKG'], ['plan', 'Plan'], ['export', 'Export']];
 function renderPlan() {
   const sh = ship();
   app.innerHTML = `
@@ -327,8 +327,8 @@ function renderPlan() {
     <div class="ttl"><b>${esc(sh.name)}</b><span>Voyage ${esc(sh.voyage || '–')}${sh.activePol ? ', loading at ' + esc(code(sh.activePol)) : ''}</span></div>
   </header>
   <nav class="tabs">${TABS.map(([k, n]) => `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}">${n}</button>`).join('')}</nav>
-  <section class="tabbody">${({ ship: tabShip, ports: tabPorts, summary: tabSummary, mafis: tabMafis, export: tabExport })[UI.tab]()}</section>`;
-  ({ ship: afterShip, ports: afterPorts, summary: () => { }, mafis: () => { }, export: () => { } })[UI.tab]();
+  <section class="tabbody">${({ ship: tabShip, ports: tabPorts, summary: tabSummary, mafis: tabMafis, plan: tabPlanHtml, export: tabExport })[UI.tab]()}</section>`;
+  ({ ship: afterShip, ports: afterPorts, summary: () => { }, mafis: () => { }, plan: afterPlanTab, export: () => { } })[UI.tab]();
 }
 
 /* Stowage direction arrow (coordinates in pixels) */
@@ -577,7 +577,7 @@ function tabExport() {
   return `
   <div class="card">
     <h2 class="ch">PDF report</h2>
-    <p class="muted">Stowage plan, stowage plan for this port's loading, stowage detail, loading summary for this port, loading summary for all ports, Deck 5 plan, MAFI and package list.</p>
+    <p class="muted">Stowage plan, stowage plan for this port's loading, stowage detail, loading summary for this port, loading summary for all ports, Deck 5 plan, MAFI and package list, lashing for units of 5 t and over.</p>
     <label class="fld"><span>Send to</span><input type="email" data-bind="email" value="${esc(sh.email)}"></label>
     <button class="btn primary big" data-act="makePdf">Create PDF</button>
     ${UI.pdf ? `<div class="pdfready">
@@ -643,7 +643,7 @@ function renderHold() {
       <button data-act="mode" data-v="ev" class="${UI.mode === 'ev' ? 'on' : ''}">EV</button>
     </div>
     ${UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
-    <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div>${UI.mode === 'paint' || UI.mode === 'erase' ? `<div class="seg brush" aria-label="Tool size">${[[1, 'S'], [3, 'M'], [6, 'L'], ['rect', '▭ Area']].map(([v, n]) => `<button data-act="brush" data-v="${v}" class="${String(UI.brush) === String(v) ? 'on' : ''}">${n}</button>`).join('')}</div>` : `<span class="muted">Two fingers: zoom and move</span>`}</div>
+    <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div>${UI.mode === 'paint' || UI.mode === 'erase' ? `<div class="seg brush" aria-label="Tool size">${[[1, 'S'], [3, 'M'], [6, 'L'], ['rect', '▭ Area']].map(([v, n]) => `<button data-act="brush" data-v="${v}" class="${String(UI.brush) === String(v) ? 'on' : ''}">${n}</button>`).join('')}</div>` : `<span class="muted">Two fingers: zoom and move</span>`}${planToggleHtml()}</div>
     ${UI.mode === 'draw' ? `<div class="poly-bar" id="dkPolyBar"></div>` : ''}
     <div class="dk-wrap"><svg id="dk" xmlns="http://www.w3.org/2000/svg"></svg></div>
     <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : UI.mode === 'erase' ? `<button class="btn sm danger" data-act="clearHold">${UI.erasePod ? `Discharge all ${esc(code(UI.erasePod))} from Hold ${h}` : `Discharge all of Hold ${h}`}</button>` : UI.mode === 'draw' ? '' : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button><button class="btn sm" data-act="fillRest">Fill remaining of Hold ${h} with ${esc(code(UI.pod))}</button>`}</div>
@@ -661,9 +661,11 @@ function entriesHtml(ho) {
     <select data-ebind="pod" aria-label="POD">${portOpts(dischPorts(), e.pod)}</select>
     <select data-ebind="pol" aria-label="POL"><option value="">POL</option>${portOpts(loadPorts(), e.pol)}</select>
     <input data-ebind="units" inputmode="numeric" placeholder="Units" value="${esc(e.units)}" aria-label="Units">
-    <input data-ebind="brand" placeholder="Brand / model" value="${esc(e.brand)}" aria-label="Brand">
+    <input data-ebind="brand" placeholder="Brand / model" value="${esc(e.brand)}" aria-label="Brand" list="brandList">
+    <input data-ebind="wt" inputmode="decimal" placeholder="t/unit" value="${esc(e.wt || '')}" aria-label="Weight per unit in tonnes">
     <button class="ic danger" data-act="delEntry" data-id="${e.id}" aria-label="Remove">${I.bin}</button>
-  </div>`).join('');
+    <div class="lash-slot">${lashHintHtml(e.wt, e.units)}</div>
+  </div>`).join('') + `<datalist id="brandList">${brandOptions(ship().activePol).map(o => `<option value="${esc(o)}">`).join('')}</datalist>`;
 }
 function refreshHoldMeta() {
   const ho = getHold(UI.deck, UI.hold, true);
@@ -724,6 +726,7 @@ function drawHoldGrid() {
   const cur = deckHolds(d).find(q => q.h === UI.hold);
   svg.innerHTML = `<defs><mask id="hullMask" maskUnits="userSpaceOnUse" x="0" y="0" width="${g.w}" height="${g.h}"><image href="deck${d}-mask.png" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/></mask></defs>
     <image href="deck${d}.png" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/>
+    ${planImageSvg(d)}
     <g opacity=".72" mask="url(#hullMask)">${dkCellsSvg(d)}</g>
     ${cur ? `<rect x="${cur.x0}" y="0.5" width="${cur.x1 - cur.x0}" height="${g.h - 1}" class="curhold"/>` : ''}
     ${deckHolds(d).map(z => `<text x="${(z.x0 + z.x1) / 2}" y="${12 * dkUpp() + 2}" font-size="${11 * dkUpp()}" class="dk-lbl" text-anchor="middle">Hold ${z.h}</text>`).join('')}
@@ -971,7 +974,7 @@ function d5ToolsHtml() {
 }
 function d5ToolsBase() {
   return `<div class="seg zoom"><button data-act="d5zoom" data-v="out" aria-label="Zoom out">−</button><button data-act="d5zoom" data-v="in" aria-label="Zoom in">+</button><button data-act="d5zoom" data-v="fit">Fit</button></div>
-  <div class="seg">${D5TOOLS.map(([k, n]) => `<button data-act="d5tool" data-v="${k}" class="${UI.d5.tool === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
+  <div class="seg">${D5TOOLS.map(([k, n]) => `<button data-act="d5tool" data-v="${k}" class="${UI.d5.tool === k ? 'on' : ''}">${n}</button>`).join('')}</div>${planToggleHtml()}`;
 }
 function d5Hint() {
   return ({ select: 'Pinch with two fingers to zoom, drag the empty deck to pan. Tap an item to edit, drag to move, drag the round handle to resize.', rect: 'Drag on the deck to draw a rectangle for units.', free: 'Tap each corner of the shape. Straight lines join the corners. Tap the first corner or Finish to close it.', erase: 'Tap an item to discharge it. Choose one port to discharge only that port\'s cargo. Undo brings it back.', mafi: 'Tap on the deck where the MAFI stands.', pkg: 'Tap on the deck where the package stands. Resize it with the round handle.', ev: 'Tap the exact spot of each electric vehicle. Use Select to move or delete.' })[UI.d5.tool];
@@ -1046,6 +1049,7 @@ function drawD5() {
   const v = d5VB(); svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
   svg.innerHTML = `
     <image href="deck5.png" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/>
+    ${planImageSvg(5)}
     ${ship().deck5.shapes.map(shapeSvg).join('')}
     ${D5HOLDS.map(z => { const o = ship().holds['5-' + z.h], n = o ? starCount(o.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, D5H / 2, 7 * d5UnitsPerPx(), n) : ''; }).join('')}
     <g id="tmp"></g>`;
@@ -1212,10 +1216,13 @@ function sheetBody(s) {
   if (s.type === 'pkg') return top + `
     <div class="grid2"><label class="fld"><span>PKGs</span><input data-sb="pkgs" inputmode="numeric" value="${esc(s.pkgs)}"></label>
     <label class="fld"><span>MT</span><input data-sb="mt" inputmode="decimal" value="${esc(s.mt)}"></label></div>
-    <label class="fld"><span>Description</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. Transformer, boat, crate"></label>`;
+    <label class="fld"><span>Description</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. Transformer, boat, crate"></label>
+    <label class="fld"><span>Weight per package (t)</span><input data-sb="wt" inputmode="decimal" value="${esc(s.wt || '')}"></label><div class="lash-slot">${lashHintHtml(s.wt, s.pkgs)}</div>`;
   if (s.type !== 'mafi') return top + `
     <label class="fld"><span>Units</span><input data-sb="units" inputmode="numeric" value="${esc(s.units)}"></label>
-    <label class="fld"><span>Model and maker</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. 1 Ut FUSO TRUCK"></label>`;
+    <label class="fld"><span>Model and maker</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. 1 Ut FUSO TRUCK" list="brandList5"></label>
+    <label class="fld"><span>Weight per unit (t)</span><input data-sb="wt" inputmode="decimal" value="${esc(s.wt || '')}"></label><div class="lash-slot">${lashHintHtml(s.wt, s.units)}</div>
+    <datalist id="brandList5">${brandOptions(ship().activePol).map(o => `<option value="${esc(o)}">`).join('')}</datalist>`;
   return top + s.mafis.map((m, i) => `<div class="mcard">
       <div class="mcard-h"><b>MAFI ${i + 1} of ${s.mafis.length}</b>${s.mafis.length > 1 ? `<button class="ic danger" data-sa="rmMafi" data-i="${i}" aria-label="Remove MAFI">${I.bin}</button>` : ''}</div>
       <div class="grid2">
@@ -1236,7 +1243,11 @@ function openSheet(s) {
   const close = () => { ov.remove(); drawD5(); save(); };
   ov.addEventListener('input', e => {
     const t = e.target;
-    if (t.dataset.sb) { s[t.dataset.sb] = t.value; }
+    if (t.dataset.sb) {
+      s[t.dataset.sb] = t.value;
+      if (t.dataset.sb === 'label' && s.type !== 'pkg') { const w = bookingWeight(t.value, s.pol); if (w != null) { s.wt = String(Math.round(w * 100) / 100); const wi = $('[data-sb="wt"]', ov); if (wi) wi.value = s.wt; } }
+      const sl = $('.lash-slot', ov); if (sl && ['wt', 'units', 'pkgs', 'label'].includes(t.dataset.sb)) sl.innerHTML = lashHintHtml(s.wt, s.type === 'pkg' ? s.pkgs : s.units);
+    }
     if (t.dataset.mb) { s.mafis[+t.dataset.i][t.dataset.mb] = t.value; }
     drawD5(); save();
   });
@@ -1412,6 +1423,15 @@ async function buildPdf() {
     body: pk.length ? pk.map(x => [`Hold ${x.hold}`, { content: x.podpol, styles: { fillColor: hexRgb(x.color), fontStyle: 'bold' } }, x.label || '-', fmt(x.pkgs), fmt(x.mt, 1)]) : [['', '', 'No packages', '', '']],
     foot: pk.length ? [['Total', '', pk.length + ' items', fmt(pk.reduce((a, x) => a + x.pkgs, 0)), fmt(pk.reduce((a, x) => a + x.mt, 0), 1)]] : undefined });
 
+  // 8. Lashing for loaded units of 5 t or more
+  const hv = heavyLoaded(sh);
+  doc.addPage(); header('LASHING – UNITS 5 MT AND OVER');
+  AT({ ...base, startY: 24, head: [['Deck', 'Hold', 'POD', 'POL', 'Model', 'Units', 't / unit', 'Lashing material', 'Per unit', 'Total']],
+    body: hv.length ? hv.map(r => [`DK ${r.deck}`, `Hold ${r.hold}`, podCell(r.pod), code(r.pol), r.model || '-', fmt(r.units), fmt(r.wt, 1), r.pick.n ? r.pick.sh + (r.pick.st !== 'ok' ? ' (check)' : '') : '-', r.pick.n, { content: String(r.pick.n * r.units), styles: { fontStyle: 'bold' } }]) : [['', '', '', '', 'No loaded units of 5 t or more', '', '', '', '', '']] });
+  const lt = {}; hv.forEach(r => { lt[r.pick.k] = (lt[r.pick.k] || 0) + r.pick.n * r.units; });
+  if (hv.length) AT({ ...base, startY: doc.lastAutoTable.finalY + 5, tableWidth: 110, head: [['Lashing material', 'Total needed']], body: LASH.filter(t => lt[t.k]).map(t => [t.name, String(lt[t.k])]) });
+  doc.setFontSize(7); doc.text('Required number = cargo weight x 1.2 / SWL (SWL = 1/4 of breaking load), rounded up to an even number, per K Line lashing matrix.', 10, doc.lastAutoTable.finalY + 5);
+
   footer();
   return { blob: doc.output('blob'), name: fileBase.replace('%', 'Stowage_Plan') };
 }
@@ -1554,6 +1574,8 @@ document.addEventListener('input', e => {
     en[f] = t.value; save();
     if ((f === 'pod' || f === 'pol') && old && old !== t.value) recolorEntry(ho, en, f, old);
     if (f === 'pod') $('.dot', t.closest('.entry')).style.background = colorOf(t.value);
+    if (f === 'brand') { const w = bookingWeight(t.value, en.pol); if (w != null) { en.wt = String(Math.round(w * 100) / 100); const wi = $('[data-ebind="wt"]', t.closest('.entry')); if (wi) wi.value = en.wt; save(); } }
+    if (f === 'brand' || f === 'wt' || f === 'units') { const sl = $('.lash-slot', t.closest('.entry')); if (sl) sl.innerHTML = lashHintHtml(en.wt, en.units); }
     refreshHoldMeta();
   }
 });
@@ -1583,7 +1605,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 /* ---------- Start ---------- */
 (async () => {
-  await load(); render();
+  await load(); await loadPlanImages(); render();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
   locode().catch(() => { });
 })();

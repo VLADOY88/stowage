@@ -292,3 +292,26 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .dk-bar { flex-wrap: wrap; }
 #dkPolyBar { min-height: 88px; align-content: flex-start; }
 @media (orientation: landscape) and (max-height: 500px) { #dkPolyBar { min-height: 0; flex: 1 1 100%; } }
+/* Unit line: weight + lashing hint */
+.entry { grid-template-columns: 16px 58px minmax(0, 1fr) minmax(0, 1fr) 58px 44px; grid-template-areas: "d pod pod pol pol x" "u u b b w w" "l l l l l l"; }
+.entry [data-ebind="wt"] { grid-area: w; } .entry [data-ebind="units"] { grid-area: u; } .entry [data-ebind="brand"] { grid-area: b; }
+.entry .lash-slot { grid-area: l; }
+.entry .lash-slot:empty { display: none; }
+.lash-hint { font-size: 13px; line-height: 1.35; padding: 6px 8px; border-radius: 8px; background: var(--warn-bg); margin-top: 2px; }
+.sheet-b .lash-hint { margin-bottom: 6px; }
+.tbl.lash tr.grey td { color: var(--muted); }
+.tbl.lash tr.no td { opacity: .45; }
+.tbl.lash tr.pick td { font-weight: 800; }
+.tbl td.ok { color: var(--ok); font-weight: 800; } .tbl td.over { color: var(--danger); font-weight: 800; }
+.small { font-size: 13px; }
+.plan-seg button { font-size: 13px; min-height: 36px; padding: 0 8px; }
+.map-wrap { max-height: 45svh; overflow: auto; margin: 6px 0; }
+.tbl.map select { min-height: 38px; font-size: 15px; max-width: 170px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface2); }
+.chk { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 15px; }
+.chk input { width: 20px; height: 20px; }
+.tbl.bk td { white-space: normal; font-size: 13px; }
+.tabs { justify-content: flex-start; }
+.tabs button { flex: 1 0 auto; padding: 0 10px; }
+.tbl.wrap td { white-space: normal; } .tbl.wrap td:nth-child(2) { text-align: left; }
+details.pol-group { margin: 6px 0; } details.pol-group summary { font-weight: 800; cursor: pointer; padding: 6px 0; }
+.plan-blend { mix-blend-mode: multiply; }
