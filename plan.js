@@ -58,6 +58,10 @@ function planImageSvg(d) {
   const src = PLAN[v] && PLAN[v][d], b = DECKBOX[d]; if (!src || !b) return '';
   return `<image href="${src}" x="${b[0]}" y="${b[1]}" width="${b[2] - b[0]}" height="${b[3] - b[1]}" preserveAspectRatio="none" opacity="${UI.planOpacity || 0.8}" class="plan-blend"/>`;
 }
+function planLegendHtml() {
+  const v = UI.planView; if (!PLAN || !v || v === 'off' || !PLAN.legend || !PLAN.legend[v]) return '';
+  return `<div class="plan-legend" aria-label="Planner colours"><span>${v === 'load' ? 'Loading' : 'Disch.'}</span><img src="${PLAN.legend[v]}" alt="Port colours used in the planner's ${v === 'load' ? 'loading' : 'discharging'} plan"></div>`;
+}
 function planToggleHtml() {
   if (!PLAN) return '';
   const v = UI.planView || 'off';
@@ -172,9 +176,12 @@ async function parsePreplan(file) {
   if (sSheet) {
     const rows = await sheetRows(W, sSheet); let lc = 1, dc = 16;
     rows.forEach(r => (r || []).forEach((v, i) => { if (/^\s*loading\s*$/i.test(String(v || ''))) lc = i; if (/^\s*discharging\s*$/i.test(String(v || ''))) dc = i; }));
-    const pics = await sheetPictures(W, sSheet), big = [];
-    for (const p of pics) { const f = W.zip.file(p.media); if (!f) continue; const blob = await f.async('blob'); const dim = await imgSize(blob); if (dim.w >= 800 && dim.w > dim.h * 3) big.push({ ...p, blob }); }
+    const pics = await sheetPictures(W, sSheet), big = [], small = [];
+    for (const p of pics) { const f = W.zip.file(p.media); if (!f) continue; const blob = await f.async('blob'); const dim = await imgSize(blob); if (dim.w >= 800 && dim.w > dim.h * 3) big.push({ ...p, blob }); else if (dim.w < 300 && dim.h > dim.w * 1.5) small.push({ ...p, blob }); }
     const mid = (lc + dc) / 2, groups = { load: big.filter(p => p.col < mid), disch: big.filter(p => p.col >= mid) };
+    // colour legends (port codes in the planner's colours) beside each block
+    result.legend = {};
+    for (const k of ['load', 'disch']) { const lg = small.filter(p => (k === 'load' ? p.col < mid : p.col >= mid)).sort((a, b) => a.row - b.row)[0]; if (lg) result.legend[k] = await blobToDataURL(lg.blob); }
     result.pics = { load: {}, disch: {} }; result.picCount = big.length;
     for (const k of ['load', 'disch']) {
       const list = groups[k].sort((a, b) => a.row - b.row);
@@ -183,6 +190,7 @@ async function parsePreplan(file) {
   }
   return result;
 }
+function blobToDataURL(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(blob); }); }
 function imgSize(blob) { return new Promise(res => { const i = new Image(), u = URL.createObjectURL(blob); i.onload = () => { res({ w: i.naturalWidth, h: i.naturalHeight }); URL.revokeObjectURL(u); }; i.onerror = () => { res({ w: 0, h: 0 }); URL.revokeObjectURL(u); }; i.src = u; }); }
 
 /* ---------- Port code matching ---------- */
@@ -229,7 +237,7 @@ async function importPreplan(file) {
     if (M.fill) loadPorts().forEach(p => { const b = bookedFor(p.id); if (b.rows.length) { p.expUnits = String(b.units); p.expPkgs = String(b.pkgs); } });
   }
   if (R.pics && Object.keys(R.pics.load).length + Object.keys(R.pics.disch).length) {
-    PLAN = { file: R.file, date: new Date().toISOString(), load: R.pics.load, disch: R.pics.disch };
+    PLAN = { file: R.file, date: new Date().toISOString(), load: R.pics.load, disch: R.pics.disch, legend: R.legend || {} };
     try { await dbSet('plan-' + sh.id, PLAN); } catch (e) { toast('Plan pictures could not be stored: ' + e.message); }
     UI.planView = 'load';
   }
@@ -350,7 +358,7 @@ function afterPlanTab() {
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-pact]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return;
   const a = b.dataset.pact, v = b.dataset.v;
-  if (a === 'view') { UI.planView = v; if (UI.view === 'deck5') { drawD5(); $$('[data-pact=view]').forEach(x => x.classList.toggle('on', x.dataset.v === v)); } else if (UI.view === 'hold') { drawHoldGrid(); $$('[data-pact=view]').forEach(x => x.classList.toggle('on', x.dataset.v === v)); } }
+  if (a === 'view') { UI.planView = v; if (UI.view === 'deck5' || UI.view === 'hold') rerender(); }
   if (a === 'clear') {
     if (!(await confirmBox('Remove the imported booking list and plan pictures? Your loading data stays.', 'Remove'))) return;
     delete ship().booking; PLAN = null; try { await dbSet('plan-' + ship().id, null); } catch (err) { } save(); rerender();

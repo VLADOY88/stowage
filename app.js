@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 22;
+const APP_VERSION = 23;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -50,7 +50,20 @@ function heightSelect(d, h) {
 const starCount = code => (code === '18-21' ? 1 : code === 'gt21' ? 2 : 0);
 function starPts(cx, cy, r) { const o = []; for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; o.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]); } return o; }
 const starsSvg = (cx, cy, r, n) => Array.from({ length: n }, (_, k) => `<polygon class="hstar" points="${starPts(cx + (k - (n - 1) / 2) * r * 2.1, cy, r).map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join(' ')}"/>`).join('');
-function drawStars(ctx, cx, cy, r, n) { for (let k = 0; k < n; k++) { const pts = starPts(cx + (k - (n - 1) / 2) * r * 2.1, cy, r); ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.fillStyle = '#0e2036'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, r * 0.25); ctx.lineJoin = 'round'; ctx.stroke(); ctx.fill(); } }
+function drawStars(ctx, cx, cy, r, n) { for (let k = 0; k < n; k++) { const pts = starPts(cx + (k - (n - 1) / 2) * r * 2.1, cy, r); ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.fillStyle = '#ffd400'; ctx.strokeStyle = '#000000'; ctx.lineWidth = Math.max(0.8, r * 0.22); ctx.lineJoin = 'round'; ctx.fill(); ctx.stroke(); } }
+// Deck data from the ship's stowage plan: clear height (cm), axle load (t), deck load (kg/m²).
+// Decks 5–8 have several heights depending on the movable panel arrangement.
+const DECKINFO = {
+  12: { h: ['185'], ax: 1.2, kg: 250 }, 11: { h: ['185'], ax: 1.2, kg: 250 }, 10: { h: ['220'], ax: 1.6, kg: 300 }, 9: { h: ['220'], ax: 1.6, kg: 300 },
+  8: { h: ['220', '185', '–'], ax: 1.6, kg: 300 }, 7: { h: ['220', '255', '420'], ax: 35.0, kg: 1500 }, 6: { h: ['220', '185', '–'], ax: 1.6, kg: 300 },
+  5: { h: ['305', '340', '510'], ax: 45.0, kg: 2000 }, 4: { h: ['220'], ax: 1.6, kg: 300 }, 3: { h: ['220'], ax: 1.6, kg: 300 }, 2: { h: ['220'], ax: 1.6, kg: 300 }, 1: { h: ['185'], ax: 1.2, kg: 250 }
+};
+const deckH = (d, sh = ship()) => { const o = DECKINFO[d]; const i = (sh.deckH && sh.deckH[d]) || 0; return o.h[clamp(i, 0, o.h.length - 1)]; };
+function deckInfoHtml(d) {
+  const o = DECKINFO[d], sh = ship(), i = (sh.deckH && sh.deckH[d]) || 0;
+  const hSel = o.h.length > 1 ? `<select data-deckh="${d}" aria-label="Deck ${d} height">${o.h.map((v, k) => `<option value="${k}" ${k === i ? 'selected' : ''}>${v === '–' ? '– (not in use)' : v + ' cm'}</option>`).join('')}</select>` : `<b>${o.h[0]} cm</b>`;
+  return `<div class="deckinfo"><span>H</span>${hSel}<span>@ <b>${o.ax}</b> t/axle</span><span><b>${o.kg}</b> kg/m²</span></div>`;
+}
 function holdsFor(d) {
   if (d === 1 || d === 2) return [3, 2];
   if (d === 3 || d === 4) return [3, 2, 1];
@@ -372,6 +385,7 @@ function tabShip() {
   <label class="fld inline"><span>Loading now at</span><select data-bind="activePol"><option value="">Select port</option>${portOpts(loadPorts(), sh.activePol)}</select></label>
   <div class="schem-wrap"><canvas id="schem" aria-label="Ship schematic. Tap a hold to open it."></canvas></div>
   <p class="hint">Tap a hold to load (paint) or discharge (erase). Aft is left, bow is right.</p>
+  <div class="card movdecks"><h2 class="ch">Movable decks: clear height</h2>${[8, 7, 6, 5].map(d => `<div class="mvrow"><b>DK ${d}</b>${deckInfoHtml(d)}</div>`).join('')}</div>
   <div class="legend">${dischPorts().map(p => `<span class="lg"><i style="background:${p.color}"></i><b>${esc(p.code)}</b> ${fmt(byPod[p.id]?.units || 0)} units${byPod[p.id]?.pkgs ? ', ' + fmt(byPod[p.id].pkgs) + ' PKGs' : ''}</span>`).join('') || '<span class="muted">Add discharging ports in the Ports tab.</span>'}</div>
   <div class="totline"><span>On board</span><b>${fmt(tot.units)} units</b><b>${fmt(tot.pkgs)} PKGs</b><b>${fmt(tot.mt, 1)} MT statics</b><b>${evCount(sh)} EV</b></div>`;
 }
@@ -390,9 +404,9 @@ function afterShip() {
 
 /* Ship schematic renderer (used on screen and in PDF) */
 function shipLayout(W, H) {
-  const labelW = Math.round(W * 0.115), head = Math.round(H * 0.045), bow = Math.round(W * 0.055);
-  const x0 = labelW, x1 = W - bow - 3, cw = (x1 - x0) / 4, top = head, rh = (H - head - 4) / 12;
-  return { W, H, labelW, head, bow, x0, x1, cw, top, rh, bot: top + rh * 12 };
+  const labelW = Math.round(W * 0.105), head = Math.round(H * 0.045), bow = Math.round(W * 0.05), infoW = Math.round(W * 0.15);
+  const x0 = labelW, x1 = W - bow - infoW - 3, cw = (x1 - x0) / 4, top = head, rh = (H - head - 4) / 12;
+  return { W, H, labelW, head, bow, infoW, x0, x1, cw, top, rh, bot: top + rh * 12 };
 }
 function shipHit(L, x, y) {
   if (!L || y < L.top || y > L.bot) return null;
@@ -417,6 +431,7 @@ function drawShip(ctx, W, H, sh, T, pol) {
   const fsH = Math.max(9, L.rh * 0.34);
   ctx.font = `600 ${fsH}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   for (let j = 0; j < 4; j++) ctx.fillText('Hold ' + (4 - j), L.x0 + L.cw * (j + 0.5), L.head - 5);
+  ctx.textAlign = 'left'; ctx.fillText('Deck data', L.W - L.infoW + 3, L.head - 5); ctx.textAlign = 'center';
   // hull
   ctx.beginPath(); ctx.moveTo(L.x0 - 2, L.top); ctx.lineTo(L.x1, L.top);
   ctx.bezierCurveTo(L.x1 + L.bow * 1.5, L.top + (L.bot - L.top) * 0.12, L.x1 + L.bow * 0.9, L.top + (L.bot - L.top) * 0.6, L.x1 - L.cw * 0.12, L.bot);
@@ -428,6 +443,9 @@ function drawShip(ctx, W, H, sh, T, pol) {
     ctx.fillStyle = T.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = `800 ${Math.max(9, L.rh * 0.34)}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillText('DK ' + d, L.labelW / 2, y + L.rh * 0.36);
     ctx.font = `500 ${Math.max(8, L.rh * 0.27)}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.muted; ctx.fillText(fmt(dt) + ' u', L.labelW / 2, y + L.rh * 0.72);
+    { const o = DECKINFO[d], fx = L.W - L.infoW + 3, fs = Math.max(6.5, Math.min(L.rh * 0.25, L.infoW * 0.15)); ctx.textAlign = 'left';
+      ctx.font = `800 ${fs * 1.08}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.ink; ctx.fillText('H ' + deckH(d, sh) + (deckH(d, sh) === '–' ? '' : ' cm'), fx, y + L.rh * 0.22);
+      ctx.font = `500 ${fs}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.muted; ctx.fillText(`@ ${o.ax} t/axle`, fx, y + L.rh * 0.52); ctx.fillText(`${o.kg} kg/m²`, fx, y + L.rh * 0.8); ctx.textAlign = 'center'; }
     for (let j = 0; j < 4; j++) {
       const h = 4 - j, x = L.x0 + j * L.cw;
       if (!hs.includes(h)) {
@@ -476,7 +494,7 @@ function drawShip(ctx, W, H, sh, T, pol) {
     for (let j = 0; j < 4; j++) {
       const h = 4 - j, o = sh.holds[d + '-' + h]; if (!hs.includes(h) || !o || !o.height || (pol && !holdHas(d, h))) continue;
       const n = starCount(o.height); if (!n) continue;
-      const r = Math.max(2.8, Math.min(L.rh * 0.13, L.cw * 0.05));
+      const r = Math.max(3.4, Math.min(L.rh * 0.15, L.cw * 0.06));
       drawStars(ctx, L.x0 + (j + 1) * L.cw - r * (n * 2.1 + 0.6) / 2 - 2, y + L.rh / 2, r, n);
     }
   });
@@ -638,6 +656,8 @@ function renderHold() {
     <button class="ic" data-act="undo" id="undoBtn" aria-label="Undo" ${UI.undo.length ? '' : 'disabled'}>${I.undo}</button>
   </header>
   <main class="hold-main">
+    <div class="ctl">
+    ${deckInfoHtml(d)}
     ${heightSelect(d, h)}
     <div class="seg wide">
       <button data-act="mode" data-v="paint" class="${UI.mode === 'paint' ? 'on' : ''}">Load</button>
@@ -648,8 +668,9 @@ function renderHold() {
     </div>
     ${UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
     <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div>${UI.mode === 'paint' || UI.mode === 'erase' ? `<div class="seg brush" aria-label="Tool size">${[[1, 'S'], [3, 'M'], [6, 'L'], ['rect', '▭ Area']].map(([v, n]) => `<button data-act="brush" data-v="${v}" class="${String(UI.brush) === String(v) ? 'on' : ''}">${n}</button>`).join('')}</div>` : `<span class="muted">Two fingers: zoom and move</span>`}${planToggleHtml()}</div>
+    </div>
     ${UI.mode === 'draw' ? `<div class="poly-bar" id="dkPolyBar"></div>` : ''}
-    <div class="dk-wrap"><svg id="dk" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="dk-row">${planLegendHtml()}<div class="dk-wrap"><svg id="dk" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
     <div class="row-btns">${UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : UI.mode === 'erase' ? `<button class="btn sm danger" data-act="clearHold">${UI.erasePod ? `Discharge all ${esc(code(UI.erasePod))} from Hold ${h}` : `Discharge all of Hold ${h}`}</button>` : UI.mode === 'draw' ? '' : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button><button class="btn sm" data-act="fillRest">Fill remaining of Hold ${h} with ${esc(code(UI.pod))}</button>`}</div>
     <div class="sec-h"><h2>Units in Hold ${h}</h2><b id="holdTot">${fmt(ho.entries.reduce((a, e) => a + num(e.units), 0))}</b></div>
     <div id="entries">${entriesHtml(ho)}</div>
@@ -964,10 +985,11 @@ function renderDeck5() {
     <button class="ic danger" data-act="d5Del" id="d5Del" aria-label="Delete selected" ${UI.d5.sel ? '' : 'disabled'}>${I.bin}</button>
   </header>
   <p class="rotate-hint">Turn your iPhone sideways for a larger Deck 5.</p>
+  <div class="d5-height">${deckInfoHtml(5)}</div>
   <div class="d5-tools" id="d5Tools">${d5ToolsHtml()}</div>
   ${UI.d5.zoom ? `<div class="d5-height">${heightSelect(5, UI.d5.zoom)}</div>` : ''}
   <div class="poly-bar" id="polyBar"></div>
-  <div class="d5-wrap"><svg id="d5" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  <div class="dk-row d5-row">${planLegendHtml()}<div class="d5-wrap"><svg id="d5" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
   <p class="hint d5-hint" id="d5Hint">${d5Hint()}</p>
   ${bottomNav()}`;
   drawD5(); bindD5();
@@ -1343,7 +1365,7 @@ function stowagePage(K, title, pol) {
     body: pods.length ? pods.map(pod => { const m = rows.filter(r => r.pod === pod), a = sumRows(m); return [podCell(pod), ...[4, 3, 2, 1].map(h => fmt(m.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(a.units), fmt(a.pkgs), fmt(a.mt, 1)]; }) : [['No cargo', '', '', '', '', '', '', '']],
     foot: [['Total', ...[4, 3, 2, 1].map(h => fmt(rows.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))), fmt(tot.units), fmt(tot.pkgs), fmt(tot.mt, 1)]] });
   const sx = 200, sy = 23;
-  const pdfStar = (cx, cy, r) => { const p = starPts(cx, cy, r); doc.setFillColor(14, 32, 54); doc.lines(p.slice(1).map((q, i) => [q[0] - p[i][0], q[1] - p[i][1]]), p[0][0], p[0][1], [1, 1], 'F', true); };
+  const pdfStar = (cx, cy, r) => { const p = starPts(cx, cy, r); doc.setFillColor(255, 212, 0); doc.setDrawColor(0, 0, 0); doc.setLineWidth(0.15); doc.lines(p.slice(1).map((q, i) => [q[0] - p[i][0], q[1] - p[i][1]]), p[0][0], p[0][1], [1, 1], 'FD', true); };
   doc.setFontSize(7.5); pdfStar(sx, sy - 1, 1.3); doc.text('Unit height 1.8 - 2.1 m', sx + 3, sy); pdfStar(sx + 36, sy - 1, 1.3); pdfStar(sx + 39, sy - 1, 1.3); doc.text('Unit height over 2.1 m', sx + 42, sy);
   const y = doc.lastAutoTable.finalY + 3, ih = 210 - y - 7;
   const cv = document.createElement('canvas'); cv.width = 2000; cv.height = Math.round(2000 * ih / Math.min(277, ih * 1.5));
@@ -1589,6 +1611,7 @@ document.addEventListener('change', async e => {
   if (t.dataset.bind === 'activePol' || t.dataset.bind === 'name') rerender();
   if (t.dataset.pbind === 'expUnits' || t.dataset.pbind === 'expPkgs') rerender();
   if (t.dataset.pbind === 'code' && !t.value) { const p = P(t.dataset.id); p.code = uniqueCode(p.locode.slice(2), p.id); save(); rerender(); }
+  if (t.dataset.deckh) { const sh = ship(); (sh.deckH ||= {})[t.dataset.deckh] = +t.value; save(); if (UI.view === 'plan' && UI.tab === 'ship') afterShip(); $$(`[data-deckh="${t.dataset.deckh}"]`).forEach(x => { if (x !== t) x.value = t.value; }); toast(`Deck ${t.dataset.deckh} height set to ${deckH(+t.dataset.deckh)}${deckH(+t.dataset.deckh) === '–' ? '' : ' cm'}.`); return; }
   if (t.dataset.pos) {
     const sh = ship(), from = sh.ports.findIndex(p => p.id === t.dataset.pos), to = +t.value;
     const [p] = sh.ports.splice(from, 1); sh.ports.splice(to, 0, p); save(); rerender();

@@ -287,7 +287,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .vtxh { fill: #fff; stroke: #0e2036; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .vtxh.on { fill: var(--accent); }
 .midh { fill: var(--accent); stroke: #0e2036; stroke-width: 1; opacity: .85; vector-effect: non-scaling-stroke; }
-.hstar { fill: #0e2036; stroke: #fff; stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.hstar { fill: #ffd400; stroke: #000; stroke-width: 1.3; stroke-linejoin: round; vector-effect: non-scaling-stroke; pointer-events: none; }
 .seg.brush button { min-width: 38px; font-size: 14px; }
 .dk-bar { flex-wrap: wrap; }
 #dkPolyBar { min-height: 88px; align-content: flex-start; }
@@ -333,3 +333,30 @@ mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; 
 .tbl.lash tr.no td, .tbl tr.no td { opacity: .5; }
 .tbl.lash td:last-child, .tbl.lash th:last-child { white-space: normal; min-width: 70px; }
 .tbl.lash td, .tbl.lash th { padding-left: 4px; padding-right: 4px; }
+/* Deck height / axle / deck load */
+.deckinfo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--muted); margin: 8px 0 0; }
+.deckinfo b { color: var(--ink); }
+.deckinfo select { min-height: 36px; padding: 4px 8px; font-size: 15px; font-weight: 700; border-radius: 8px; border: 1.5px solid var(--accent); background: var(--surface2); }
+.movdecks .mvrow { display: flex; align-items: center; gap: 10px; } .movdecks .mvrow > b { width: 44px; } .movdecks .deckinfo { margin: 4px 0; }
+.d5-height .deckinfo { margin: 0 0 6px; }
+/* Plan legend beside the deck */
+.dk-row { display: flex; gap: 6px; align-items: flex-start; }
+.dk-row > .dk-wrap, .dk-row > .d5-wrap { flex: 1; min-width: 0; }
+.d5-row { margin: 8px 6px 0; } .d5-row > .d5-wrap { margin: 0; }
+.plan-legend { flex: none; width: 46px; background: #fff; border-radius: 8px; padding: 3px; display: flex; flex-direction: column; align-items: center; margin-top: 6px; }
+.plan-legend span { font-size: 9px; font-weight: 800; color: #33465f; }
+.plan-legend img { width: 40px; height: auto; display: block; }
+@media (orientation: landscape) and (max-height: 500px) { .plan-legend { width: 54px; } .plan-legend img { width: 48px; } .view-hold .dk-row { flex: 1 1 100%; } .view-hold .deckinfo { margin: 0; } }
+/* Landscape deck screen: all controls in one sideways-scrolling strip so the deck gets the height */
+@media (orientation: landscape) and (max-height: 500px) {
+  .view-hold .top { min-height: 0; }
+  .view-hold .top .ic { width: 38px; height: 38px; }
+  .view-hold .ctl { flex: 1 1 100%; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .view-hold .ctl::-webkit-scrollbar { display: none; }
+  .view-hold .ctl > * { flex: none; margin: 0 !important; }
+  .view-hold .ctl .chips, .view-hold .ctl .dk-bar { flex-wrap: nowrap; }
+  .view-hold .ctl .deckinfo { flex-wrap: nowrap; white-space: nowrap; }
+  .view-hold .ctl .hsel span { display: none; }
+  .view-hold #dk { max-height: calc(100svh - 158px); }
+  .view-hold:has(#dkPolyBar) #dk { max-height: calc(100svh - 200px); }
+}
