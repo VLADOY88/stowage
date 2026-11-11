@@ -4,6 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
+const APP_VERSION = 20;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -267,7 +268,8 @@ const app = document.getElementById('app');
 function render() {
   const y = window.scrollY;
   app.className = 'view-' + UI.view;
-  ({ home: renderHome, plan: renderPlan, hold: renderHold, deck5: renderDeck5 })[UI.view]();
+  if (UI.view !== 'sop') window.onscroll = null;
+  ({ home: renderHome, plan: renderPlan, hold: renderHold, deck5: renderDeck5, sop: renderSop })[UI.view]();
   if (UI.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
   UI.keepScroll = false;
 }
@@ -303,7 +305,8 @@ function renderHome() {
     <p class="home-meta">Voyage ${esc(sh.voyage || '–')}${sh.depDate ? ', ' + esc(new Date(sh.depDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })) : ''}</p>
     <p class="home-rot">${esc(rotation(sh)) || 'No ports added yet'}</p>
     <button class="btn primary big" data-act="open">Open stowage plan</button>
-    <p class="home-foot">Everything is saved on this iPhone and works without internet.${S.savedAt ? ' Last saved ' + new Date(S.savedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) + '.' : ''}</p>
+    ${sopHomeHtml()}
+    <p class="home-foot">App version ${APP_VERSION}. Everything is saved on this iPhone and works without internet.${S.savedAt ? ' Last saved ' + new Date(S.savedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) + '.' : ''}</p>
   </main>`;
   $('#shipSel').onchange = async e => {
     if (e.target.value === '__add') {
@@ -1605,7 +1608,12 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 /* ---------- Start ---------- */
 (async () => {
-  await load(); await loadPlanImages(); render();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+  await load(); await loadPlanImages(); await sopMeta(); render();
+  if ('serviceWorker' in navigator) {
+    // when a new version has been installed, reload once so it is used straight away
+    const hadController = !!navigator.serviceWorker.controller; let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded) { reloaded = true; save(); setTimeout(() => location.reload(), 400); } });
+    navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => { });
+  }
   locode().catch(() => { });
 })();
