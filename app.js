@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 21;
+const APP_VERSION = 22;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -1434,7 +1434,7 @@ async function buildPdf() {
     body: hv.length ? hv.map(r => [`DK ${r.deck}`, `Hold ${r.hold}`, podCell(r.pod), code(r.pol), r.model || '-', fmt(r.units), fmt(r.wt, 1), r.pick.sh, r.pick.n, { content: String(r.pick.n * r.units), styles: { fontStyle: 'bold' } }]) : [['', '', '', '', 'No loaded units of 5 t or more', '', '', '', '', '']] });
   const lt = {}; hv.forEach(r => { lt[r.pick.k] = (lt[r.pick.k] || 0) + r.pick.n * r.units; });
   if (hv.length) AT({ ...base, startY: doc.lastAutoTable.finalY + 5, tableWidth: 110, head: [['Lashing material', 'Total needed']], body: LASH.filter(t => lt[t.k]).map(t => [t.name, String(lt[t.k])]) });
-  doc.setFontSize(7); doc.text('Required number = cargo weight x 1.2 / SWL (K Line rule; SWL = 1/4 of breaking load), rounded up. BL 20T chain is not used.', 10, doc.lastAutoTable.finalY + 5);
+  doc.setFontSize(7); doc.text('Required number = cargo weight x 1.2 / SWL (K Line rule; SWL = 1/4 of breaking load), rounded up to an even number. BL 20T chain is not used.', 10, doc.lastAutoTable.finalY + 5);
 
   footer();
   return { blob: doc.output('blob'), name: fileBase.replace('%', 'Stowage_Plan') };

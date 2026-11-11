@@ -11,11 +11,11 @@ const LASH = [
   { k: 'c15', name: 'BL 15T chain', sh: '15T chain', swl: 3.75, ok: [20, 100], grey: [105, 125], c: '#ff99cc' },
   { k: 'c20', name: 'BL 20T chain', sh: '20T chain', swl: 5.0, ok: [20, 125], grey: null, c: '#ffc000' }
 ];
-// K Line rule only: Required number = cargo weight (t) x 1.2 / SWL, rounded up to a whole lashing.
+// K Line rule only: Required number = cargo weight (t) x 1.2 / SWL, rounded up to the next even number (equal on both sides).
 // BL 20T chain is shown for information only (no longer used; only if nothing else is available).
 function lashing(wt) {
   wt = num(wt); if (wt < 5) return null;
-  return LASH.map(t => ({ ...t, n: Math.ceil(wt * 1.2 / t.swl - 1e-9), st: t.k === 'c20' ? 'last' : 'ok' }));
+  return LASH.map(t => ({ ...t, n: 2 * Math.ceil(wt * 1.2 / t.swl / 2 - 1e-9), st: t.k === 'c20' ? 'last' : 'ok' }));
 }
 // Chosen material: the preferred one if set, otherwise the fewest lashings — never BL 20T chain
 function lashPick(wt, pref) {
@@ -35,7 +35,7 @@ function lashTableHtml(wt, units) {
   const pick = lashPick(wt, ship().lashPref), u = num(units);
   return `<table class="tbl lash"><thead><tr><th>Material</th><th>SWL</th><th>Per unit</th>${u > 1 ? '<th>Total</th>' : ''}<th>Use</th></tr></thead><tbody>
     ${L.map(x => `<tr class="${x.k === 'c20' ? 'no' : ''}${x.k === pick.k ? ' pick' : ''}"><td><i class="dot" style="background:${x.c}"></i>${x.name}</td><td>${x.swl} t</td><td><b>${x.n}</b></td>${u > 1 ? `<td>${x.n * u}</td>` : ''}<td>${x.k === pick.k ? 'Chosen' : x.k === 'c20' ? 'Only if nothing else' : ''}</td></tr>`).join('')}
-    </tbody></table><p class="hint">${fmt(num(wt), 2)} t × 1.2 ÷ SWL, rounded up.</p>`;
+    </tbody></table><p class="hint">${fmt(num(wt), 2)} t × 1.2 ÷ SWL, rounded up to an even number.</p>`;
 }
 // Every loaded item with a weight per unit of 5 t or more
 function heavyLoaded(sh = ship()) {
@@ -319,7 +319,7 @@ function bookingResults(res, t) {
 function lashCalcCard() {
   const pref = ship().lashPref || 'auto';
   return `<div class="card">
-    <p class="muted">Required number = cargo weight × 1.2 / SWL (K Line rule), rounded up.</p>
+    <p class="muted">Required number = cargo weight × 1.2 / SWL (K Line rule), rounded up to an even number (equal on both sides).</p>
     <div class="grid2"><label class="fld"><span>Weight per unit (t)</span><input inputmode="decimal" id="lashW" value="${esc(UI.lashW || '')}" placeholder="e.g. 27.8"></label>
     <label class="fld"><span>Number of units</span><input inputmode="numeric" id="lashU" value="${esc(UI.lashU || '')}" placeholder="1"></label></div>
     <label class="fld"><span>Preferred material</span><select data-pact="pref"><option value="auto" ${pref === 'auto' ? 'selected' : ''}>Fewest lashings (auto)</option>${LASH.filter(t => t.k !== 'c20').map(t => `<option value="${t.k}" ${pref === t.k ? 'selected' : ''}>${t.name}</option>`).join('')}</select></label>
