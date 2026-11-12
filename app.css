@@ -368,3 +368,4 @@ mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; 
 .imgview-body { flex: 1; overflow: auto; padding: 8px 8px calc(env(safe-area-inset-bottom, 0px) + 8px); -webkit-overflow-scrolling: touch; }
 .imgview-body img { width: 100%; height: auto; display: block; background: #fff; border-radius: 6px; }
 .tbl.wrap th:nth-child(2) { text-align: left; } .tbl.wrap td:nth-child(7) { white-space: nowrap; }
+.manual-port { width: 100%; justify-content: flex-start; margin: 6px 0 2px; text-align: left; }

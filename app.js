@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 25;
+const APP_VERSION = 26;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -205,7 +205,7 @@ const shapeHold = s => { const b = bbox(s); return holdOfX(b.x + b.w / 2); };
 function mafiTotals(s) {
   const loaded = s.mafis.filter(m => m.loaded), empty = s.mafis.length - loaded.length;
   return {
-    pkgs: loaded.reduce((a, m) => a + num(m.pkgs), 0) + (empty > 0 ? 1 : 0),
+    pkgs: loaded.reduce((a, m) => a + num(m.pkgs) + 1, 0) + (empty > 0 ? 1 : 0),
     mt: s.mafis.reduce((a, m) => a + num(m.mt) + num(m.tara), 0)
   };
 }
@@ -348,7 +348,7 @@ function renderPlan() {
   app.innerHTML = `
   <header class="top">
     <button class="ic" data-act="home" aria-label="Ships">${I.back}</button>
-    <div class="ttl"><b>${esc(sh.name)}</b><span>Voyage ${esc(sh.voyage || '–')}${sh.activePol ? ', loading at ' + esc(code(sh.activePol)) : ''}</span></div>
+    <div class="ttl"><b>${esc(sh.name)}</b><span>Voyage ${esc(sh.voyage || '–')}${sh.activePol ? ', current port ' + esc(code(sh.activePol)) : ''}</span></div>
   </header>
   <nav class="tabs">${TABS.map(([k, n]) => `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}">${n}</button>`).join('')}</nav>
   <section class="tabbody">${({ ship: tabShip, ports: tabPorts, summary: tabSummary, mafis: tabMafis, plan: tabPlanHtml, export: tabExport })[UI.tab]()}</section>`;
@@ -389,7 +389,7 @@ function tabShip() {
   const sh = ship(), rows = cargoRows(sh), tot = sumRows(rows);
   const byPod = {}; rows.forEach(r => { (byPod[r.pod] ||= { units: 0, pkgs: 0 }); byPod[r.pod].units += r.units; byPod[r.pod].pkgs += r.pkgs; });
   return `
-  <label class="fld inline"><span>Loading now at</span><select data-bind="activePol"><option value="">Select port</option>${portOpts(loadPorts(), sh.activePol)}</select></label>
+  <label class="fld inline"><span>Current port</span><select data-bind="activePol"><option value="">Select port</option>${portOpts(sh.ports, sh.activePol)}</select></label>
   <div class="schem-wrap"><canvas id="schem" aria-label="Ship schematic. Tap a hold to open it."></canvas></div>
   <p class="hint">Tap a hold to load (paint) or discharge (erase). Aft is left, bow is right.</p>
   <div class="card movdecks"><h2 class="ch">Movable decks: clear height</h2>${[8, 7, 6, 5].map(d => `<div class="mvrow"><b>DK ${d}</b>${deckInfoHtml(d)}</div>`).join('')}</div>
@@ -517,7 +517,7 @@ function tabPorts() {
       <label class="fld"><span>Ship name</span><input data-bind="name" value="${esc(sh.name)}"></label>
       <label class="fld"><span>Voyage no.</span><input data-bind="voyage" value="${esc(sh.voyage)}" autocapitalize="characters"></label>
       <label class="fld"><span>Departure date</span><input type="date" data-bind="depDate" value="${esc(sh.depDate)}"></label>
-      <label class="fld"><span>Loading now at</span><select data-bind="activePol"><option value="">Select port</option>${portOpts(loadPorts(), sh.activePol)}</select></label>
+      <label class="fld"><span>Current port</span><select data-bind="activePol"><option value="">Select port</option>${portOpts(sh.ports, sh.activePol)}</select></label>
     </div>
     <p class="rot" id="rot">${esc(rotation(sh))}</p>
   </div>
@@ -551,7 +551,8 @@ function portRow(p) {
 }
 function afterPorts() {
   const ps = $('#portSearch');
-  ps.oninput = async () => { const v = ps.value; const r = await searchLoc(v); if (ps.value === v) $('#searchRes').innerHTML = resultsHtml(r, 'addPort'); };
+  ps.oninput = async () => { const v = ps.value; const r = await searchLoc(v); if (ps.value !== v) return;
+    const t = v.trim(); $('#searchRes').innerHTML = (t.length >= 2 ? `<button class="btn sm manual-port" data-act="addManual" data-name="${esc(t)}">${I.plus} Add “${esc(t)}” as a new port (not in UN/LOCODE list)</button>` : '') + resultsHtml(r, 'addPort'); };
   $$('[data-locfor]').forEach(inp => inp.oninput = async () => { const v = inp.value; const r = await searchLoc(v); if (inp.value === v) $(`[data-locres="${inp.dataset.locfor}"]`).innerHTML = resultsHtml(r, 'setLoc', `data-id="${inp.dataset.locfor}"`); });
 }
 
@@ -582,7 +583,7 @@ function tabSummary() {
   <div class="card tblwrap"><table class="tbl"><thead><tr><th>POD</th><th>H4</th><th>H3</th><th>H2</th><th>H1</th><th>Units</th><th>PKGs</th><th>MT</th></tr></thead><tbody>
   ${pods.map(pod => { const m = rows.filter(r => r.pod === pod), a = sumRows(m); return `<tr><td><i class="dot" style="background:${colorOf(pod)}"></i>${esc(code(pod))}</td>${[4, 3, 2, 1].map(h => `<td>${fmt(m.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))}</td>`).join('')}<td><b>${fmt(a.units)}</b></td><td>${fmt(a.pkgs)}</td><td>${fmt(a.mt, 1)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No cargo on board</td></tr>'}
   </tbody><tfoot><tr><td>Total</td>${[4, 3, 2, 1].map(h => `<td>${fmt(rows.filter(r => r.hold === h).reduce((x, r) => x + r.units, 0))}</td>`).join('')}<td>${fmt(tot.units)}</td><td>${fmt(tot.pkgs)}</td><td>${fmt(tot.mt, 1)}</td></tr></tfoot></table></div>
-  <p class="hint">PKGs: packages on Deck 5 and on loaded MAFIs. An empty MAFI or empty MAFI stack counts as 1 PKG. MT: package weight plus MAFI tare.</p>
+  <p class="hint">PKGs: packages on Deck 5 and on loaded MAFIs. An empty MAFI or empty MAFI stack counts as 1 PKG. A loaded MAFI is counted as a PKG too (for example 5 PKGs on 1 MAFI counts as 6 PKGs). MT: package weight plus MAFI tare.</p>
   <h2 class="sh">Loaded at each port</h2>
   ${loadCards || '<p class="muted">Mark ports as L or L+D in the Ports tab.</p>'}`;
 }
@@ -659,7 +660,7 @@ function renderHold() {
   app.innerHTML = `
   <header class="top">
     <button class="ic" data-act="toShip" aria-label="Back to ship">${I.back}</button>
-    <div class="ttl"><b>Deck ${d}, Hold ${h}</b><span>${sh.activePol ? 'Loading at ' + esc(code(sh.activePol)) : 'Set the loading port in Ports'}${ho.evs.length ? `, ${ho.evs.length} EV` : ''}</span></div>
+    <div class="ttl"><b>Deck ${d}, Hold ${h}</b><span>${sh.activePol ? 'Current port ' + esc(code(sh.activePol)) : 'Set the current port in Ports'}${ho.evs.length ? `, ${ho.evs.length} EV` : ''}</span></div>
     <button class="ic" data-act="undo" id="undoBtn" aria-label="Undo" ${UI.undo.length ? '' : 'disabled'}>${I.undo}</button>
   </header>
   <main class="hold-main">
@@ -987,7 +988,7 @@ function renderDeck5() {
   app.innerHTML = `
   <header class="top">
     <button class="ic" data-act="toShip" aria-label="Back to ship">${I.back}</button>
-    <div class="ttl"><b>Deck 5, main deck</b><span>${UI.d5.zoom ? 'Hold ' + UI.d5.zoom : 'All holds'}${sh.activePol ? ', loading at ' + esc(code(sh.activePol)) : ''}</span></div>
+    <div class="ttl"><b>Deck 5, main deck</b><span>${UI.d5.zoom ? 'Hold ' + UI.d5.zoom : 'All holds'}${sh.activePol ? ', current port ' + esc(code(sh.activePol)) : ''}</span></div>
     <button class="ic" data-act="d5undo" id="d5Undo" aria-label="Undo" ${UI.d5undo.length ? '' : 'disabled'}>${I.undo}</button>
     <button class="ic danger" data-act="d5Del" id="d5Del" aria-label="Delete selected" ${UI.d5.sel ? '' : 'disabled'}>${I.bin}</button>
   </header>
@@ -1438,7 +1439,7 @@ async function buildPdf() {
     sb.push([g('Total at ' + p.code, 1), g(''), g(fmt(a.units), 1), g(fmt(a.pkgs), 1), g(fmt(a.mt, 1), 1), g(`${p.expUnits || '-'} / ${p.expPkgs || '-'}`), stc]);
   });
   AT({ ...base, startY: 24, head: [['Loading port', 'POD', 'Units', 'PKGs', 'MT', 'Expected units / PKGs', 'Status']], body: sb, foot: [['Grand total', '', fmt(tot.units), fmt(tot.pkgs), fmt(tot.mt, 1), '', '']] });
-  doc.setFontSize(7); doc.text('PKGs: packages on deck 5 and on loaded MAFIs; an empty MAFI or empty MAFI stack counts as 1 PKG. MT: package weight plus MAFI tare.', 10, doc.lastAutoTable.finalY + 5);
+  doc.setFontSize(7); doc.text('PKGs: packages on Deck 5 and on loaded MAFIs. An empty MAFI or empty MAFI stack counts as 1 PKG. A loaded MAFI is counted as a PKG too (for example 5 PKGs on 1 MAFI counts as 6 PKGs). MT: package weight plus MAFI tare.', 10, doc.lastAutoTable.finalY + 5);
 
   // 6. Deck 5, full width
   doc.addPage(); header('DECK 5 (MAIN DECK)');
@@ -1511,6 +1512,11 @@ document.addEventListener('click', async e => {
     case 'addPort': {
       const c = b.dataset.code, p = { id: uid(), locode: c, name: b.dataset.name.split(',')[0], code: uniqueCode(c.slice(2)), type: 'D', color: nextColor(), expUnits: '', expPkgs: '' };
       sh.ports.push(p); save(); UI.openPort = p.id; render(); toast(`${p.name} added as discharging port.`); break;
+    }
+    case 'addManual': {
+      const t = b.dataset.name.trim(), isCode = /^[A-Za-z0-9-]{2,6}$/.test(t);
+      const p = { id: uid(), locode: '', name: isCode ? t.toUpperCase() : t, code: uniqueCode((isCode ? t : t.replace(/[^A-Za-z]/g, '').slice(0, 3)).toUpperCase().replace('-', '') || 'PRT'), type: 'D', color: nextColor(), expUnits: '', expPkgs: '' };
+      sh.ports.push(p); save(); UI.openPort = p.id; render(); toast(`${p.code} added. Edit its name and short code below if needed.`, 4000); break;
     }
     case 'setLoc': {
       const p = P(id); p.locode = b.dataset.code; p.name = b.dataset.name.split(',')[0]; p.code = uniqueCode(b.dataset.code.slice(2), p.id);
