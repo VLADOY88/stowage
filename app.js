@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 23;
+const APP_VERSION = 25;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -55,13 +55,20 @@ function drawStars(ctx, cx, cy, r, n) { for (let k = 0; k < n; k++) { const pts 
 // Decks 5–8 have several heights depending on the movable panel arrangement.
 const DECKINFO = {
   12: { h: ['185'], ax: 1.2, kg: 250 }, 11: { h: ['185'], ax: 1.2, kg: 250 }, 10: { h: ['220'], ax: 1.6, kg: 300 }, 9: { h: ['220'], ax: 1.6, kg: 300 },
-  8: { h: ['220', '185', '–'], ax: 1.6, kg: 300 }, 7: { h: ['220', '255', '420'], ax: 35.0, kg: 1500 }, 6: { h: ['220', '185', '–'], ax: 1.6, kg: 300 },
+  8: { h: ['220', '185', '–'], ax: 1.6, kg: 300 }, 7: { h: ['220', '255', '420'], ax: 35.0, kg: 1500 }, 6: { h: ['220', '185', '–', '0'], ax: 1.6, kg: 300 },
   5: { h: ['305', '340', '510'], ax: 45.0, kg: 2000 }, 4: { h: ['220'], ax: 1.6, kg: 300 }, 3: { h: ['220'], ax: 1.6, kg: 300 }, 2: { h: ['220'], ax: 1.6, kg: 300 }, 1: { h: ['185'], ax: 1.2, kg: 250 }
 };
-const deckH = (d, sh = ship()) => { const o = DECKINFO[d]; const i = (sh.deckH && sh.deckH[d]) || 0; return o.h[clamp(i, 0, o.h.length - 1)]; };
+// Selected heights of a deck (decks 5–8 can have several at the same time, by panel arrangement)
+function deckHSel(d, sh = ship()) {
+  const o = DECKINFO[d]; let v = sh.deckH && sh.deckH[d];
+  if (typeof v === 'number') v = [v];
+  v = (Array.isArray(v) ? v : [0]).filter(i => i >= 0 && i < o.h.length);
+  return v.length ? [...new Set(v)].sort((a, b) => a - b) : [0];
+}
+const deckH = (d, sh = ship()) => { const o = DECKINFO[d], hs = deckHSel(d, sh).map(i => o.h[i]); const nums = hs.filter(x => /\d/.test(x) && x !== '0'); return hs.map(x => x).join('/') + (nums.length ? ' cm' : ''); };
 function deckInfoHtml(d) {
-  const o = DECKINFO[d], sh = ship(), i = (sh.deckH && sh.deckH[d]) || 0;
-  const hSel = o.h.length > 1 ? `<select data-deckh="${d}" aria-label="Deck ${d} height">${o.h.map((v, k) => `<option value="${k}" ${k === i ? 'selected' : ''}>${v === '–' ? '– (not in use)' : v + ' cm'}</option>`).join('')}</select>` : `<b>${o.h[0]} cm</b>`;
+  const o = DECKINFO[d], sel = deckHSel(d);
+  const hSel = o.h.length > 1 ? `<span class="hchips" role="group" aria-label="Deck ${d} heights">${o.h.map((v, k) => `<button class="hchip ${sel.includes(k) ? 'on' : ''}" data-deckh="${d}" data-v="${k}" aria-pressed="${sel.includes(k)}">${v === '–' ? '–' : v}</button>`).join('')}<span class="muted">cm</span></span>` : `<b>${o.h[0]} cm</b>`;
   return `<div class="deckinfo"><span>H</span>${hSel}<span>@ <b>${o.ax}</b> t/axle</span><span><b>${o.kg}</b> kg/m²</span></div>`;
 }
 function holdsFor(d) {
@@ -335,7 +342,7 @@ function renderHome() {
 /* =========================================================
    PLAN (tabs)
    ========================================================= */
-const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFI/PKG'], ['plan', 'Plan'], ['export', 'Export']];
+const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFI/PKG'], ['plan', 'Booking'], ['export', 'Export']];
 function renderPlan() {
   const sh = ship();
   app.innerHTML = `
@@ -444,7 +451,7 @@ function drawShip(ctx, W, H, sh, T, pol) {
     ctx.font = `800 ${Math.max(9, L.rh * 0.34)}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillText('DK ' + d, L.labelW / 2, y + L.rh * 0.36);
     ctx.font = `500 ${Math.max(8, L.rh * 0.27)}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.muted; ctx.fillText(fmt(dt) + ' u', L.labelW / 2, y + L.rh * 0.72);
     { const o = DECKINFO[d], fx = L.W - L.infoW + 3, fs = Math.max(6.5, Math.min(L.rh * 0.25, L.infoW * 0.15)); ctx.textAlign = 'left';
-      ctx.font = `800 ${fs * 1.08}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.ink; ctx.fillText('H ' + deckH(d, sh) + (deckH(d, sh) === '–' ? '' : ' cm'), fx, y + L.rh * 0.22);
+      ctx.font = `800 ${fs * 1.08}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.ink; { const t = 'H ' + deckH(d, sh); let f = fs * 1.08; while (f > 5 && ctx.measureText(t).width > L.infoW - 5) { f -= 0.5; ctx.font = `800 ${f}px -apple-system,system-ui,Helvetica,sans-serif`; } ctx.fillText(t, fx, y + L.rh * 0.22); }
       ctx.font = `500 ${fs}px -apple-system,system-ui,Helvetica,sans-serif`; ctx.fillStyle = T.muted; ctx.fillText(`@ ${o.ax} t/axle`, fx, y + L.rh * 0.52); ctx.fillText(`${o.kg} kg/m²`, fx, y + L.rh * 0.8); ctx.textAlign = 'center'; }
     for (let j = 0; j < 4; j++) {
       const h = 4 - j, x = L.x0 + j * L.cw;
@@ -1611,7 +1618,6 @@ document.addEventListener('change', async e => {
   if (t.dataset.bind === 'activePol' || t.dataset.bind === 'name') rerender();
   if (t.dataset.pbind === 'expUnits' || t.dataset.pbind === 'expPkgs') rerender();
   if (t.dataset.pbind === 'code' && !t.value) { const p = P(t.dataset.id); p.code = uniqueCode(p.locode.slice(2), p.id); save(); rerender(); }
-  if (t.dataset.deckh) { const sh = ship(); (sh.deckH ||= {})[t.dataset.deckh] = +t.value; save(); if (UI.view === 'plan' && UI.tab === 'ship') afterShip(); $$(`[data-deckh="${t.dataset.deckh}"]`).forEach(x => { if (x !== t) x.value = t.value; }); toast(`Deck ${t.dataset.deckh} height set to ${deckH(+t.dataset.deckh)}${deckH(+t.dataset.deckh) === '–' ? '' : ' cm'}.`); return; }
   if (t.dataset.pos) {
     const sh = ship(), from = sh.ports.findIndex(p => p.id === t.dataset.pos), to = +t.value;
     const [p] = sh.ports.splice(from, 1); sh.ports.splice(to, 0, p); save(); rerender();
@@ -1630,6 +1636,16 @@ document.addEventListener('change', async e => {
 });
 let rzT; window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => { if (UI.view === 'plan' && UI.tab === 'ship') afterShip(); if (UI.view === 'hold') drawHoldGrid(); }, 150); });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (UI.view === 'plan' && UI.tab === 'ship') afterShip(); if (UI.view === 'hold') drawHoldGrid(); });
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-deckh]'); if (!b) return;
+  const d = +b.dataset.deckh, k = +b.dataset.v, sh = ship(), cur = deckHSel(d);
+  let next = cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k];
+  if (!next.length) { toast('At least one height must stay selected.'); return; }
+  (sh.deckH ||= {})[d] = next.sort((a, b) => a - b); save();
+  $$(`[data-deckh="${d}"]`).forEach(x => { const on = next.includes(+x.dataset.v); x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+  if (UI.view === 'plan' && UI.tab === 'ship') afterShip();
+});
 
 /* ---------- Start ---------- */
 (async () => {
