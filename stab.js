@@ -94,7 +94,8 @@ function tabStabHtml() {
   return `<div class="card">
     <p class="muted">One point per stack (POD/POL) per hold. A full hold with one stack uses the standard loading condition. Otherwise the centre of the painted figures is used where the deck stability plan has been added (now: ${Object.keys(STABMAP).length === 12 ? 'all decks' : Object.keys(STABMAP).map(d => DECKNAME(+d)).join(', ')}); other decks use the standard hold values. KG = deck height + 0.7 m (deck heights added: ${Object.keys(DECK_BL).map(d => DECKNAME(+d) + ' ' + DECK_BL[d] + ' m').join(', ')}${Object.keys(PANEL_BL).length ? '; ' + Object.keys(PANEL_BL).map(d => `${DECKNAME(+d)} by panel: Low ${PANEL_BL[d].normal} / 1st ${PANEL_BL[d].mid} / 2nd ${PANEL_BL[d].full} m`).join(', ') : ''}).</p>
     <label class="fld"><span>Weight per unit when not entered (t)</span><input inputmode="decimal" data-stab="defwt" value="${esc(defW)}"></label>
-    <button class="btn" data-stab="csv">Save as CSV (for the loading computer)</button>
+    <button class="btn primary" data-stab="pdf">Export to PDF</button>
+    ${UI.pdfStab ? `<div class="pdfready"><p><b>${esc(UI.pdfStab.name)}</b> is ready.</p><button class="btn primary" data-act="sharePdf" data-v="pdfStab">Email PDF</button><button class="btn" data-act="savePdf" data-v="pdfStab">Save to Files</button></div>` : ''}
   </div>
   <div class="card"><div class="sc-h"><b>Total cargo</b></div><p>${fmt(T.n)} units, <b>${fmt(T.w, 1)} t</b>${T.wl ? `, Mid.G ${fmt(T.mx / T.wl, 2)} m, TCG ${fmt(T.my / T.wl, 2)} m` : ''}${T.wk ? `, KG ${fmt(T.mz / T.wk, 2)} m${T.wk < T.w ? ' (decks with known height only)' : ''}` : ''}</p></div>
   ${decks.map(d => `<h2 class="sh">${DECKNAME(d)}</h2><div class="card tblwrap"><table class="tbl stab"><thead><tr><th>Grp</th><th>Hold</th><th>POD/POL</th><th>Number of cars</th><th>Weight (t)</th><th>Mid.G (m)</th><th>KG (m)</th><th>TCG (m)</th><th>Note</th></tr></thead><tbody>
@@ -108,13 +109,35 @@ function stabCsv() {
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-stab]'); if (!b || b.tagName === 'INPUT') return;
-  if (b.dataset.stab === 'csv') { const sh = ship(); shareFile(new Blob([stabCsv()], { type: 'text/csv' }), `${sh.short || 'SHIP'}_stability_VOY_${(sh.voyage || '').replace(/[^A-Za-z0-9]+/g, '')}.csv`, 'text/csv', 'Stability points'); }
+  if (b.dataset.stab === 'pdf') { b.disabled = true; b.textContent = 'Creating PDF…'; buildStabPdf().then(p => { UI.pdfStab = p; rerender(); toast('Stability PDF created.'); }).catch(err => { console.error(err); toast('Could not create PDF: ' + err.message); b.disabled = false; b.textContent = 'Export to PDF'; }); }
 });
 document.addEventListener('change', e => { if (e.target.dataset.stab === 'defwt') { ship().stabDefWt = e.target.value; save(); rerender(); } });
 
 /* =========================================================
    Deck plans PDF: all 12 decks, one per landscape page
    ========================================================= */
+// Stability points as PDF: Deck 12 → Deck 1, Hold 4 → Hold 1, one table per deck
+async function buildStabPdf() {
+  const K = await pdfKit(), { sh, doc, AT, header, base, podCell, footer, fileBase } = K;
+  const rows = stabStacks(), defW = sh.stabDefWt || '1.6';
+  const T = rows.reduce((a, r) => { a.n += r.n; a.w += r.w; if (r.lcg != null) { a.mx += r.w * r.lcg; a.my += r.w * r.tcg; a.wl += r.w; } if (r.kg != null) { a.mz += r.w * r.kg; a.wk += r.w; } return a; }, { n: 0, w: 0, mx: 0, my: 0, wl: 0, mz: 0, wk: 0 });
+  header('STABILITY – CARGO POINTS PER STACK');
+  doc.setFontSize(9);
+  doc.text(`Total cargo: ${fmt(T.n)} units, ${fmt(T.w, 1)} t${T.wl ? `, Mid.G ${fmt(T.mx / T.wl, 2)} m, TCG ${fmt(T.my / T.wl, 2)} m` : ''}${T.wk ? `, KG ${fmt(T.mz / T.wk, 2)} m` : ''}.   Weight per unit when not entered: ${defW} t.  KG = deck height + ${KG_ADD} m.`, 10, 27);
+  let y = 32;
+  for (const d of DECKS) {
+    const list = rows.filter(r => r.d === d).sort((a, b) => b.h - a.h); if (!list.length) continue;
+    if (y > 180) { doc.addPage(); header('STABILITY – CARGO POINTS PER STACK'); y = 26; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(DECKNAME(d), 10, y + 4); doc.setFont('helvetica', 'normal');
+    AT({ ...base, startY: y + 6, head: [['Grp', 'Hold', 'POD/POL', 'Number of cars', 'Weight (t)', 'Mid.G (m)', 'KG (m)', 'TCG (m)', 'Note']],
+      body: list.map((r, i) => [i + 1, r.h, { ...podCell(r.pod), content: `${code(r.pod)}/${r.pol ? code(r.pol) : '?'}` }, fmt(r.n), fmt(r.w, 1), r.lcg == null ? '-' : fmt(r.lcg, 2), r.kg == null ? '-' : fmt(r.kg, 2), r.tcg == null ? '-' : fmt(r.tcg, 2), r.src]),
+      columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 14 }, 2: { cellWidth: 32 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } } });
+    y = doc.lastAutoTable.finalY + 6;
+  }
+  if (!rows.length) doc.text('No cargo loaded.', 10, 40);
+  footer();
+  return { blob: doc.output('blob'), name: fileBase.replace('%', 'Stability') };
+}
 async function fileDataURL(name) { const r = await fetch(name); return blobToDataURL(await r.blob()); }
 function svgToCanvas(svg, W, H) {
   return new Promise((res, rej) => {
