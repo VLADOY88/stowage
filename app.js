@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 28;
+const APP_VERSION = 31;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -352,7 +352,7 @@ function renderHome() {
 /* =========================================================
    PLAN (tabs)
    ========================================================= */
-const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFI/PKG'], ['plan', 'Booking'], ['export', 'Export']];
+const TABS = [['ship', 'Ship'], ['ports', 'Ports'], ['summary', 'Summary'], ['mafis', 'MAFI/PKG'], ['plan', 'Booking'], ['stab', 'Stability'], ['export', 'Export']];
 function renderPlan() {
   const sh = ship();
   app.innerHTML = `
@@ -361,8 +361,8 @@ function renderPlan() {
     <div class="ttl"><b>${esc(sh.name)}</b><span>Voyage ${esc(sh.voyage || '–')}${sh.activePol ? ', current port ' + esc(code(sh.activePol)) : ''}</span></div>
   </header>
   <nav class="tabs">${TABS.map(([k, n]) => `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}">${n}</button>`).join('')}</nav>
-  <section class="tabbody">${({ ship: tabShip, ports: tabPorts, summary: tabSummary, mafis: tabMafis, plan: tabPlanHtml, export: tabExport })[UI.tab]()}</section>`;
-  ({ ship: afterShip, ports: afterPorts, summary: () => { }, mafis: () => { }, plan: afterPlanTab, export: () => { } })[UI.tab]();
+  <section class="tabbody">${({ ship: tabShip, ports: tabPorts, summary: tabSummary, mafis: tabMafis, plan: tabPlanHtml, stab: tabStabHtml, export: tabExport })[UI.tab]()}</section>`;
+  ({ ship: afterShip, ports: afterPorts, summary: () => { }, mafis: () => { }, plan: afterPlanTab, stab: () => { }, export: () => { } })[UI.tab]();
 }
 
 /* Stowage direction arrow (coordinates in pixels) */
@@ -638,6 +638,16 @@ function tabExport() {
     </div>` : ''}
   </div>
   <div class="card">
+    <h2 class="ch">Deck plans PDF</h2>
+    <p class="muted">All 12 decks, one landscape page each, with the cargo figures and a summary under each hold (POD/POL, units, MT if entered).</p>
+    <button class="btn primary big" data-act="makePdfDecks">Create deck plans PDF</button>
+    ${UI.pdfDecks ? `<div class="pdfready">
+      <p><b>${esc(UI.pdfDecks.name)}</b> is ready.</p>
+      <button class="btn primary" data-act="sharePdf" data-v="pdfDecks">Email PDF</button>
+      <button class="btn" data-act="savePdf" data-v="pdfDecks">Save to Files</button>
+    </div>` : ''}
+  </div>
+  <div class="card">
     <h2 class="ch">Deck 5 PDF</h2>
     <p class="muted">Landscape. Whole deck, then each hold enlarged, then the item list, for checking the Deck 5 loading.</p>
     <button class="btn primary big" data-act="makePdf5">Create Deck 5 PDF</button>
@@ -725,6 +735,7 @@ function refreshHoldMeta() {
   const ho = getHold(UI.deck, UI.hold, true);
   const u = $('#undoBtn'); if (u) u.disabled = !UI.undo.length;
   const t = $('#holdTot'); if (t) t.textContent = fmt(ho.entries.reduce((a, e) => a + num(e.units), 0));
+  if (UI.view === 'hold' && UI.mode !== 'panels') { clearTimeout(refreshHoldMeta.t); refreshHoldMeta.t = setTimeout(drawHoldGrid, 250); }
 }
 /* ---------- Deck picture editor (all decks except 5) ---------- */
 function dkVB() {
@@ -765,8 +776,8 @@ function arrowSvg(x1, y1, x2, y2, u) {
   const p = [[x2, y2], [x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)], [x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)]].map(q => q.map(n => n.toFixed(2)).join(',')).join(' ');
   return `<g class="arw"><line x1="${x1}" y1="${y1}" x2="${bx}" y2="${by}" stroke="#fff" stroke-width="7" stroke-linecap="round"/><polygon points="${p}" fill="#fff" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><line x1="${x1}" y1="${y1}" x2="${bx}" y2="${by}" stroke="#0e2036" stroke-width="3.5" stroke-linecap="round"/><polygon points="${p}" fill="#0e2036"/></g>`;
 }
-function dkMarksSvg(d) {
-  const g = DECKPIC[d], u = dkUpp(); let out = '';
+function dkMarksSvg(d, u = dkUpp()) {
+  const g = DECKPIC[d]; let out = '';
   deckHolds(d).forEach(z => {
     const o = ship().holds[d + '-' + z.h]; if (!o) return; const W = z.x1 - z.x0;
     (o.arrows || []).forEach(r => { out += arrowSvg(z.x0 + r[0] * W, r[1] * g.h, z.x0 + r[2] * W, r[3] * g.h, u); });
@@ -774,20 +785,59 @@ function dkMarksSvg(d) {
   });
   return out;
 }
-function drawHoldGrid() {
-  const svg = $('#dk'); if (!svg) return; const d = UI.deck, g = DECKPIC[d], v = dkVB();
-  svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
-  const cur = deckHolds(d).find(q => q.h === UI.hold);
-  svg.innerHTML = `<defs><mask id="hullMask" maskUnits="userSpaceOnUse" x="0" y="0" width="${g.w}" height="${g.h}"><image href="deck${d}-mask.png" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/></mask></defs>
-    <image href="deck${d}.png" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/>
-    ${planImageSvg(d)}
+// Picture of one deck (not deck 5) as SVG markup. u = deck units per screen pixel.
+// o.href(name) gives the picture source (file name on screen, embedded data for export).
+function deckBodySvg(d, u, o = {}) {
+  const g = DECKPIC[d], href = o.href || (n => n);
+  return `<defs><mask id="hullMask" maskUnits="userSpaceOnUse" x="0" y="0" width="${g.w}" height="${g.h}"><image href="${href(`deck${d}-mask.png`)}" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/></mask></defs>
+    <image href="${href(`deck${d}.png`)}" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/>
+    ${o.plan ? planImageSvg(d) : ''}
     <g opacity=".72" mask="url(#hullMask)">${dkCellsSvg(d)}</g>
-    ${cur ? `<rect x="${cur.x0}" y="0.5" width="${cur.x1 - cur.x0}" height="${g.h - 1}" class="curhold"/>` : ''}
-    ${deckHolds(d).map(z => `<text x="${(z.x0 + z.x1) / 2}" y="${12 * dkUpp() + 2}" font-size="${11 * dkUpp()}" class="dk-lbl" text-anchor="middle">Hold ${z.h}</text>`).join('')}
-    ${d >= 5 && d <= 8 ? panelLayerSvg(d, dkUpp(), UI.mode === 'panels') : ''}
-    <g id="dkMarks">${dkMarksSvg(d)}</g>
-    ${deckHolds(d).map(z => { const o = ship().holds[d + '-' + z.h], n = o ? starCount(o.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, g.h / 2, 7 * dkUpp(), n) : ''; }).join('')}
-    ${UI.evTmp ? `<g opacity=".55">${boltSvg(UI.evTmp[0], UI.evTmp[1], 24 * dkUpp())}</g>` : ''}
+    ${o.cur ? `<rect x="${o.cur.x0}" y="0.5" width="${o.cur.x1 - o.cur.x0}" height="${g.h - 1}" class="curhold"/>` : ''}
+    ${deckHolds(d).map(z => `<text x="${(z.x0 + z.x1) / 2}" y="${12 * u + 2}" font-size="${11 * u}" class="dk-lbl" text-anchor="middle" fill="#33465f" font-weight="800">Hold ${z.h}</text>`).join('')}
+    ${d >= 5 && d <= 8 ? panelLayerSvg(d, u, !!o.panels) : ''}
+    <g id="dkMarks">${dkMarksSvg(d, u)}</g>
+    ${deckHolds(d).map(z => { const hd = ship().holds[d + '-' + z.h], n = hd ? starCount(hd.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, g.h / 2, 7 * u, n) : ''; }).join('')}
+    ${figureLabelsSvg(d, u)}`;
+}
+// Cargo figures of a hold: connected painted areas and drawn shapes, each with its POD/POL
+function holdFigures(d, h) {
+  const g = DECKPIC[d], z = deckHolds(d).find(q => q.h === h), o = ship().holds[d + '-' + h]; if (!z || !o) return [];
+  const pl = holdPols(o), seen = new Uint8Array(GC * GR), figs = [], cw = (z.x1 - z.x0) / GC, ch = g.h / GR;
+  for (let i = 0; i < GC * GR; i++) {
+    if (!o.cells[i] || seen[i]) continue;
+    const pod = o.cells[i], pol = pl[i], st = [i]; seen[i] = 1; let n = 0, sx = 0, sy = 0; const cells = [];
+    while (st.length) {
+      const k = st.pop(), x = k % GC, y = Math.floor(k / GC); n++; sx += x; sy += y; cells.push(k);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, nk = ny * GC + nx; if (nx >= 0 && nx < GC && ny >= 0 && ny < GR && !seen[nk] && o.cells[nk] === pod && pl[nk] === pol) { seen[nk] = 1; st.push(nk); } }
+    }
+    figs.push({ pod, pol, area: n, cells, x: z.x0 + (sx / n + 0.5) * cw, y: (sy / n + 0.5) * ch });
+  }
+  (o.shapes || []).forEach(q => { const W = z.x1 - z.x0, P = q.pts.map(p => [z.x0 + p[0] * W, p[1] * g.h]); let a = 0, cx = 0, cy = 0; P.forEach((p, i) => { const r = P[(i + 1) % P.length], c = p[0] * r[1] - r[0] * p[1]; a += c; cx += (p[0] + r[0]) * c; cy += (p[1] + r[1]) * c; }); a /= 2; if (Math.abs(a) < 1e-6) return; figs.push({ pod: q.pod, pol: q.pol, area: Math.abs(a) / (cw * ch), x: cx / (6 * a), y: cy / (6 * a), shape: q }); });
+  return figs;
+}
+function figureLabelsSvg(d, u) {
+  let out = '';
+  deckHolds(d).forEach(z => {
+    const o = ship().holds[d + '-' + z.h]; if (!o) return;
+    const figs = holdFigures(d, z.h), done = new Set();
+    figs.sort((a, b) => b.area - a.area).forEach(f => {
+      if (f.area < 2) return;
+      const key = f.pod + '|' + (f.pol || ''), first = !done.has(key); done.add(key);
+      const units = first ? o.entries.filter(e => e.pod === f.pod && (!f.pol || e.pol === f.pol)).reduce((a, e) => a + num(e.units), 0) : 0;
+      const fs = 12 * u;
+      out += `<text x="${f.x}" y="${f.y - (units ? fs * 0.55 : 0)}" font-size="${fs}" text-anchor="middle" dominant-baseline="middle" class="fig-lbl">${esc(code(f.pod))}/${esc(f.pol ? code(f.pol) : '?')}</text>`;
+      if (units) out += `<text x="${f.x}" y="${f.y + fs * 0.6}" font-size="${fs}" text-anchor="middle" dominant-baseline="middle" class="fig-lbl">${fmt(units)} Uts</text>`;
+    });
+  });
+  return out;
+}
+function drawHoldGrid() {
+  const svg = $('#dk'); if (!svg) return; const d = UI.deck, v = dkVB();
+  svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+  const u = dkUpp(), cur = deckHolds(d).find(q => q.h === UI.hold);
+  svg.innerHTML = deckBodySvg(d, u, { plan: true, cur, panels: UI.mode === 'panels' }) + `
+    ${UI.evTmp ? `<g opacity=".55">${boltSvg(UI.evTmp[0], UI.evTmp[1], 24 * u)}</g>` : ''}
     <g id="dkSelL">${dkSelSvg()}</g>
     <g id="dkTmp"></g>`;
   if (UI.mode === 'draw') dkPolyDraw();
@@ -897,7 +947,7 @@ function bindDeck() {
     const ho = getHold(d, A.z.h, true);
     const finish = changed => { save(); if (A.switched || changed) rerender(); };
     if (A.k === 'pnl') { save(); rerender(); return; }
-    if (A.k === 'paint') { if (A.switched) rerender(); afterStroke(UI.mode); return; }
+    if (A.k === 'paint') { if (A.switched) rerender(); else drawHoldGrid(); afterStroke(UI.mode); return; }
     if (A.k === 'area') {
       const x0 = Math.min(A.a.x, A.b.x), x1 = Math.max(A.a.x, A.b.x), y0 = Math.min(A.a.y, A.b.y), y1 = Math.max(A.a.y, A.b.y);
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) paintCell(ho, { x, y });
@@ -1104,17 +1154,19 @@ function zoomAt(factor, cx, cy) { // cx, cy in deck units
   applyVB(clampVB({ x: cx - (cx - v.x) * w / v.w, y: cy - (cy - v.y) * h / v.h, w, h }));
   drawD5();
 }
+function d5BodySvg(u, o = {}) {
+  const href = o.href || (n => n);
+  return `<defs><mask id="hullMask" maskUnits="userSpaceOnUse" x="0" y="0" width="${D5W}" height="${D5H}"><image href="${href('deck5-mask.png')}" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/></mask></defs>
+    <image href="${href('deck5.png')}" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/>
+    ${o.plan ? planImageSvg(5) : ''}
+    ${ship().deck5.shapes.map(shapeSvg).join('')}
+    ${panelLayerSvg(5, u, false)}
+    ${D5HOLDS.map(z => { const hd = ship().holds['5-' + z.h], n = hd ? starCount(hd.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, D5H / 2, 7 * u, n) : ''; }).join('')}`;
+}
 function drawD5() {
   const svg = $('#d5'); if (!svg) return;
   const v = d5VB(); svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
-  svg.innerHTML = `
-    <defs><mask id="hullMask" maskUnits="userSpaceOnUse" x="0" y="0" width="${D5W}" height="${D5H}"><image href="deck5-mask.png" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/></mask></defs>
-    <image href="deck5.png" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/>
-    ${planImageSvg(5)}
-    ${ship().deck5.shapes.map(shapeSvg).join('')}
-    ${panelLayerSvg(5, d5UnitsPerPx(), false)}
-    ${D5HOLDS.map(z => { const o = ship().holds['5-' + z.h], n = o ? starCount(o.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, D5H / 2, 7 * d5UnitsPerPx(), n) : ''; }).join('')}
-    <g id="tmp"></g>`;
+  svg.innerHTML = d5BodySvg(d5UnitsPerPx(), { plan: true }) + `<g id="tmp"></g>`;
   const del = $('#d5Del'); if (del) del.disabled = !UI.d5.sel;
   const un = $('#d5Undo'); if (un) un.disabled = !UI.d5undo.length;
   polyDraw();
@@ -1612,6 +1664,11 @@ document.addEventListener('click', async e => {
     }
     case 'sharePdf': { const f = UI[v || 'pdf']; if (f) { try { navigator.clipboard && navigator.clipboard.writeText(sh.email).catch(() => { }); } catch (e) { } shareFile(f.blob, f.name, 'application/pdf', f.name.replace('.pdf', '')); } break; }
     case 'savePdf': { const f = UI[v || 'pdf']; if (f) shareFile(f.blob, f.name, 'application/pdf', f.name); break; }
+    case 'makePdfDecks': {
+      b.disabled = true; b.textContent = 'Creating PDF…';
+      try { UI.pdfDecks = await buildDecksPdf(); rerender(); toast('Deck plans PDF created.'); } catch (err) { console.error(err); toast('Could not create PDF: ' + err.message); b.disabled = false; b.textContent = 'Create deck plans PDF'; }
+      break;
+    }
     case 'makePdf5': {
       b.disabled = true; b.textContent = 'Creating PDF…';
       try { UI.pdf5 = await buildDeck5Pdf(); rerender(); toast('Deck 5 PDF created.'); } catch (err) { console.error(err); toast('Could not create PDF: ' + err.message); b.disabled = false; b.textContent = 'Create Deck 5 PDF'; }

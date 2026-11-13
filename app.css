@@ -376,3 +376,6 @@ mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; 
 .pnl-id { fill: #0e2036; font-weight: 700; opacity: .8; }
 .panel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0; }
 .panel-bar .btn { margin: 0; }
+.fig-lbl { font-weight: 800; fill: #0e2036; paint-order: stroke; stroke: #fff; stroke-width: 3px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.tbl.stab td:last-child { white-space: normal; font-size: 12px; text-align: left; min-width: 120px; }
+.tabs { overflow-x: auto; scrollbar-width: none; } .tabs::-webkit-scrollbar { display: none; } .tabs button { flex: 0 0 auto; }
