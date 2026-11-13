@@ -369,3 +369,10 @@ mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; 
 .imgview-body img { width: 100%; height: auto; display: block; background: #fff; border-radius: 6px; }
 .tbl.wrap th:nth-child(2) { text-align: left; } .tbl.wrap td:nth-child(7) { white-space: nowrap; }
 .manual-port { width: 100%; justify-content: flex-start; margin: 6px 0 2px; text-align: left; }
+.pnl-layer { pointer-events: none; }
+.pnl-chg { stroke: #e00000; stroke-width: 2.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.pnl-h { font-weight: 800; fill: #c00000; paint-order: stroke; stroke: #fff; stroke-width: 3px; vector-effect: non-scaling-stroke; }
+.pnl-h.normal { fill: #0a6f9c; } .pnl-h.mid { fill: #1b7f2a; }
+.pnl-id { fill: #0e2036; font-weight: 700; opacity: .8; }
+.panel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0; }
+.panel-bar .btn { margin: 0; }
