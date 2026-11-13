@@ -60,13 +60,8 @@ function panelChangeLines(t) {
     // vertical edges (fore/aft neighbours on the same side)
     for (const [x, dir] of [[a.x0, -1], [a.x1, 1]]) {
       const nb = R.filter(b => b !== a && b.side === a.side && Math.abs((dir < 0 ? b.x1 : b.x0) - x) < eps);
-      if (nb.length) nb.forEach(b => { if (b.st !== a.st && dir > 0) out.push([x, a.y0, x, a.y1]); });
-      else {
-        // edge against a fixed deck (deck 8 ends, deck 6 bow): fixed = normal height
-        const atStern = dir < 0 && a.fx0 < 0.02;
-        if (!atStern && n(a.st) !== 'normal') out.push([x, a.y0, x, a.y1]);
-        if (pd === 8 && dir < 0 && a.fx0 >= 0.02 && n(a.st) !== 'normal') { /* aft fixed deck edge drawn above */ }
-      }
+      // only between panels in different positions; the forward/aft ends are not marked
+      nb.forEach(b => { if (b.st !== a.st && dir > 0) out.push([x, a.y0, x, a.y1]); });
     }
     // centreline edges between P and S panels
     if (a.side === 'P') R.filter(b => b.side === 'S').forEach(b => { const [s0, s1] = ov(a.x0, a.x1, b.x0, b.x1); if (s1 - s0 > eps && b.st !== a.st) out.push([s0, a.y1, s1, a.y1]); });
@@ -90,14 +85,17 @@ function panelLayerSvg(t, u, editing) {
   const pd = PANEL_DECK[t]; if (!pd) return '';
   const R = panelRects(t); let out = '';
   if (t === pd) {
+    let rects = '', ids = '';
     R.forEach(r => {
       const col = PSTATES.find(s => s[0] === r.st)[2];
-      if (editing) out += `<rect x="${r.x0}" y="${r.y0}" width="${r.x1 - r.x0}" height="${r.y1 - r.y0}" fill="${col}" fill-opacity=".45" stroke="#33465f" stroke-width="1" data-panel="${r.id}"/><text x="${(r.x0 + r.x1) / 2}" y="${(r.y0 + r.y1) / 2}" font-size="${10 * u}" text-anchor="middle" dominant-baseline="middle" class="pnl-id">${r.id.slice(3)}</text>`;
-      else if (r.st === 'full') out += `<rect x="${r.x0}" y="${r.y0}" width="${r.x1 - r.x0}" height="${r.y1 - r.y0}" fill="url(#fullHatch)" />`;
+      if (editing) { rects += `<rect x="${r.x0}" y="${r.y0}" width="${r.x1 - r.x0}" height="${r.y1 - r.y0}" fill="${col}" fill-opacity=".45" stroke="#33465f" stroke-width="1" data-panel="${r.id}"/>`; ids += `<text x="${(r.x0 + r.x1) / 2}" y="${(r.y0 + r.y1) / 2}" font-size="${10 * u}" text-anchor="middle" dominant-baseline="middle" class="pnl-id">${r.id.slice(3)}</text>`; }
+      else if (r.st === 'full') rects += `<rect x="${r.x0}" y="${r.y0}" width="${r.x1 - r.x0}" height="${r.y1 - r.y0}" fill="url(#fullHatch)" />`;
     });
+    out += `<g mask="url(#hullMask)">${rects}</g>${ids}`;
   }
   const lines = panelChangeLines(t);
-  out += lines.map(l => `<line x1="${l[0]}" y1="${l[1]}" x2="${l[2]}" y2="${l[3]}" class="pnl-chg"/>`).join('');
+  // clipped to the inside of the blue hull/hold outline
+  out += `<g mask="url(#hullMask)">${lines.map(l => `<line x1="${l[0]}" y1="${l[1]}" x2="${l[2]}" y2="${l[3]}" class="pnl-chg"/>`).join('')}</g>`;
   // height labels per group of panels
   panelGroups(t).forEach(g => {
     const h = PH[t][g.st], txt = t === pd && g.st === 'full' ? 'FULL UP' : `H${h}`;

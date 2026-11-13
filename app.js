@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 27;
+const APP_VERSION = 28;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -1108,6 +1108,7 @@ function drawD5() {
   const svg = $('#d5'); if (!svg) return;
   const v = d5VB(); svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
   svg.innerHTML = `
+    <defs><mask id="hullMask" maskUnits="userSpaceOnUse" x="0" y="0" width="${D5W}" height="${D5H}"><image href="deck5-mask.png" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/></mask></defs>
     <image href="deck5.png" x="0" y="0" width="${D5W}" height="${D5H}" preserveAspectRatio="none"/>
     ${planImageSvg(5)}
     ${ship().deck5.shapes.map(shapeSvg).join('')}
