@@ -379,3 +379,4 @@ mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; 
 .fig-lbl { font-weight: 800; fill: #0e2036; paint-order: stroke; stroke: #fff; stroke-width: 3px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .tbl.stab td:last-child { white-space: normal; font-size: 12px; text-align: left; min-width: 120px; }
 .tabs { overflow-x: auto; scrollbar-width: none; } .tabs::-webkit-scrollbar { display: none; } .tabs button { flex: 0 0 auto; }
+.modal p { white-space: pre-line; }

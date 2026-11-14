@@ -120,3 +120,52 @@ document.addEventListener('click', e => {
   if (a === 'deck') { setPanels(PANELS[d].map(p => p.id), st); rerender(); }
   if (a === 'hold') { const z = deckHolds(d).find(q => q.h === UI.hold); const R = panelRects(d).filter(r => (r.x0 + r.x1) / 2 >= z.x0 && (r.x0 + r.x1) / 2 < z.x1); setPanels(R.map(r => r.id), st); rerender(); }
 });
+
+/* ---------- Import a panel plan picture (planner's template: Deck 8 above, Deck 6 below) ---------- */
+function loadImg(file) { return new Promise((res, rej) => { const i = new Image(), u = URL.createObjectURL(file); i.onload = () => { URL.revokeObjectURL(u); res(i); }; i.onerror = () => { URL.revokeObjectURL(u); rej(new Error('picture could not be read')); }; i.src = u; }); }
+function readPanelPlan(img) {
+  const W = img.naturalWidth, H = img.naturalHeight, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0); const px = ctx.getImageData(0, 0, W, H).data;
+  const at = (x, y) => { const i = (Math.round(y) * W + Math.round(x)) * 4; return [px[i], px[i + 1], px[i + 2]]; };
+  const cls = (r, g, b) => {
+    if (r > 235 && g > 235 && b > 235) return null;                        // white
+    if (Math.max(r, g, b) - Math.min(r, g, b) < 25) return null;            // grey / black lines and text
+    if (r > 190 && r - g > 30 && r - b > 20) return 'full';                // pink / red
+    if (g > 150 && g - r > 30 && g - b > 30) return 'mid';                 // green
+    if (b > 170 && g > 170 && b - r > 30) return 'normal';                 // cyan / light blue
+    return null;
+  };
+  // coloured panel area per row → the two deck drawings (Deck 8 above, Deck 6 below)
+  const C = new Uint8Array(W * H), rowN = new Array(H).fill(0);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; if (cls(px[i], px[i + 1], px[i + 2])) { C[y * W + x] = 1; rowN[y]++; } }
+  const bands = []; let s = -1;
+  for (let y = 0; y <= H; y++) { const on = y < H && rowN[y] > W * 0.2; if (on && s < 0) s = y; if (!on && s >= 0) { if (y - s > H * 0.08) bands.push([s, y - 1]); s = -1; } }
+  if (bands.length < 2) throw new Error('two decks with coloured panels were not found in the picture');
+  const two = bands.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0])).slice(0, 2).sort((a, b) => a[0] - b[0]);
+  const result = {};
+  [[8, two[0]], [6, two[1]]].forEach(([d, [y0, y1]]) => {
+    const colN = new Array(W).fill(0); for (let y = y0; y <= y1; y++) for (let x = 0; x < W; x++) colN[x] += C[y * W + x];
+    const xs = colN.map((n, x) => (n > (y1 - y0) * 0.3 ? x : -1)).filter(x => x >= 0), cx0 = xs[0], cx1 = xs[xs.length - 1];
+    const src = PANEL_SRC[d], bf = Math.min(src.P[0], src.S[0]), bl = Math.max(src.P[src.P.length - 1], src.S[src.S.length - 1]);
+    const X = fx => cx0 + ((src.x0 + fx * (src.x1 - src.x0)) - bf) / (bl - bf) * (cx1 - cx0);
+    const Y = fy => y0 + ((src.top + fy * (src.bot - src.top)) - src.top) / (src.bot - src.top) * (y1 - y0);
+    PANELS[d].forEach(p => {
+      const votes = { full: 0, mid: 0, normal: 0 };
+      for (let i = 1; i <= 6; i++) for (let j = 1; j <= 6; j++) { const c = cls(...at(X(p.fx0 + (p.fx1 - p.fx0) * i / 7), Y(p.fy0 + (p.fy1 - p.fy0) * j / 7))); if (c) votes[c]++; }
+      const best = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+      result[p.id] = best[1] >= 3 ? best[0] : 'normal';
+    });
+  });
+  return result;
+}
+async function importPanelPlan(file) {
+  try {
+    const img = await loadImg(file), res = readPanelPlan(img);
+    const cnt = d => { const c = { full: 0, mid: 0, normal: 0 }; PANELS[d].forEach(p => c[res[p.id]]++); return `${c.full} full up, ${c.mid} middle, ${c.normal} normal`; };
+    const ok = await confirmBox(`Panel plan read from the picture:\nDeck 8: ${cnt(8)}\nDeck 6: ${cnt(6)}\n\nApply it? You can correct single panels afterwards in Panels mode.`, 'Apply', false);
+    if (!ok) return;
+    const sh = ship(); sh.panels = {}; Object.entries(res).forEach(([id, st]) => { if (st !== 'normal') sh.panels[id] = st; });
+    save(); rerender(); toast('Panel plan applied. Check Deck 8 and Deck 6 in Panels mode.', 4500);
+  } catch (e) { console.error(e); toast('Could not read the panel plan: ' + e.message, 5000); }
+}
+document.addEventListener('change', e => { if (e.target.id === 'panelPlanFile' && e.target.files[0]) { importPanelPlan(e.target.files[0]); e.target.value = ''; } });

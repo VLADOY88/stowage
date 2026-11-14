@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 32;
+const APP_VERSION = 33;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -404,7 +404,8 @@ function tabShip() {
   <p class="hint">Tap a hold to load (paint) or discharge (erase). Aft is left, bow is right.</p>
   <div class="card movdecks"><h2 class="ch">Panel plan and clear heights</h2>${[8, 7, 6, 5].map(d => `<div class="mvrow"><b>DK ${d}</b>${deckInfoHtml(d)}</div>`).join('')}
     <p class="hint">Set the movable panels on Deck 8 and Deck 6 with the <b>Panels</b> button in the deck screen.</p>
-    <button class="btn" data-act="openPanels" data-v="8">Panels Deck 8</button><button class="btn" data-act="openPanels" data-v="6">Panels Deck 6</button></div>
+    <button class="btn" data-act="openPanels" data-v="8">Panels Deck 8</button><button class="btn" data-act="openPanels" data-v="6">Panels Deck 6</button>
+    <label class="btn primary filebtn">Import panel plan (picture)<input type="file" accept="image/*" id="panelPlanFile" hidden></label></div>
   <div class="legend">${dischPorts().map(p => `<span class="lg"><i style="background:${p.color}"></i><b>${esc(p.code)}</b> ${fmt(byPod[p.id]?.units || 0)} units${byPod[p.id]?.pkgs ? ', ' + fmt(byPod[p.id].pkgs) + ' PKGs' : ''}</span>`).join('') || '<span class="muted">Add discharging ports in the Ports tab.</span>'}</div>
   <div class="totline"><span>On board</span><b>${fmt(tot.units)} units</b><b>${fmt(tot.pkgs)} PKGs</b><b>${fmt(tot.mt, 1)} MT statics</b><b>${evCount(sh)} EV</b></div>`;
 }
@@ -705,7 +706,7 @@ function renderHold() {
       <button data-act="mode" data-v="ev" class="${UI.mode === 'ev' ? 'on' : ''}">EV</button>
       ${d === 6 || d === 8 ? `<button data-act="mode" data-v="panels" class="${UI.mode === 'panels' ? 'on' : ''}">Panels</button>` : ''}
     </div>
-    ${UI.mode === 'panels' ? panelBarHtml(d) : UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow. Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
+    ${UI.mode === 'panels' ? panelBarHtml(d) : UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow (up, down, left or right). Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
     <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div>${UI.mode === 'paint' || UI.mode === 'erase' ? `<div class="seg brush" aria-label="Tool size">${[[1, 'S'], [3, 'M'], [6, 'L'], ['rect', '▭ Area']].map(([v, n]) => `<button data-act="brush" data-v="${v}" class="${String(UI.brush) === String(v) ? 'on' : ''}">${n}</button>`).join('')}</div>` : `<span class="muted">Two fingers: zoom and move</span>`}${planToggleHtml()}</div>
     </div>
     ${UI.mode === 'draw' ? `<div class="poly-bar" id="dkPolyBar"></div>` : ''}
@@ -932,7 +933,7 @@ function bindDeck() {
       if (!act.moved && Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 6) { act.moved = true; pushUndo(); }
       if (act.moved) { const f = frac(act.z, p), dx = f[0] - act.a[0], dy = f[1] - act.a[1]; act.q.pts = act.o.map(t => [clamp(t[0] + dx, 0, 1), clamp(t[1] + dy, 0, 1)]); dkRefresh(); }
     }
-    else if (act.k === 'arrow') { act.b = p; $('#dkTmp').innerHTML = `<g opacity=".6">${arrowSvg(act.a[0], act.a[1], p[0], p[1], dkUpp())}</g>`; }
+    else if (act.k === 'arrow') { const q = Math.abs(p[0] - act.a[0]) >= Math.abs(p[1] - act.a[1]) ? [p[0], act.a[1]] : [act.a[0], p[1]]; act.b = q; $('#dkTmp').innerHTML = `<g opacity=".6">${arrowSvg(act.a[0], act.a[1], q[0], q[1], dkUpp())}</g>`; }
     else if (act.k === 'evmove') {
       if (!act.moved && Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 6) { act.moved = true; pushUndo(); }
       if (act.moved) { const ho = getHold(d, act.z.h, true), f = frac(act.z, p); ho.evs[act.i] = [f[0], f[1], ho.evs[act.i][2] ?? null]; $('#dkMarks').innerHTML = dkMarksSvg(d); }
