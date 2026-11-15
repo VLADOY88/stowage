@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 36;
+const APP_VERSION = 38;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -696,6 +696,7 @@ function eraseChips() {
 }
 function renderHold() {
   const sh = ship(), d = UI.deck, h = UI.hold, ho = getHold(d, h, true);
+  if (ensureStackEntries(ho)) save();
   if (!UI.pod || !P(UI.pod) || P(UI.pod).type === 'L') UI.pod = dischPorts()[0]?.id || null;
   app.innerHTML = `
   <header class="top">
@@ -720,7 +721,7 @@ function renderHold() {
     </div>
     ${UI.mode === 'draw' ? `<div class="poly-bar" id="dkPolyBar"></div>` : ''}
     <div class="dk-row">${planLegendHtml()}<div class="dk-wrap"><svg id="dk" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
-    <div class="row-btns">${UI.mode === 'panels' ? '' : UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : UI.mode === 'erase' ? `<button class="btn sm danger" data-act="clearHold">${UI.erasePod ? `Discharge all ${esc(code(UI.erasePod))} from Hold ${h}` : `Discharge all of Hold ${h}`}</button>` : UI.mode === 'draw' ? '' : `<button class="btn sm" data-act="fillHold">Fill Hold ${h} with ${esc(code(UI.pod))}</button><button class="btn sm" data-act="fillRest">Fill remaining of Hold ${h} with ${esc(code(UI.pod))}</button>`}</div>
+    <div class="row-btns">${UI.mode === 'panels' ? '' : UI.mode === 'ev' ? `<button class="btn sm" data-act="clearEvs" ${ho.evs.length ? '' : 'disabled'}>Remove all EV marks in Hold ${h} (${ho.evs.length})</button>` : UI.mode === 'arrow' ? `<button class="btn sm" data-act="clearArrows" ${ho.arrows.length ? '' : 'disabled'}>Remove all arrows in Hold ${h} (${ho.arrows.length})</button>` : UI.mode === 'erase' ? `<button class="btn sm danger" data-act="clearHold">${UI.erasePod ? `Discharge all ${esc(code(UI.erasePod))} from Hold ${h}` : `Discharge all of Hold ${h}`}</button>` : UI.mode === 'draw' ? '' : `<button class="btn sm" data-act="fillRest">Fill free space of Hold ${h} with ${esc(code(UI.pod))}</button>`}</div>
     <div class="sec-h"><h2>Units in Hold ${h}</h2><b id="holdTot">${fmt(ho.entries.reduce((a, e) => a + num(e.units), 0))}</b></div>
     <div id="entries">${entriesHtml(ho)}</div>
     <button class="btn" data-act="addEntry">${I.plus} Add units</button>
@@ -1092,20 +1093,42 @@ function recolorEntry(ho, en, f, old) {
   save(); if (UI.view === 'hold') drawHoldGrid();
   if (n && f === 'pod') toast(`Destination changed: ${code(pod0)} cargo now shown as ${code(en.pod)}.`);
 }
-function paintCell(ho, c) { const i = c.y * GC + c.x; if (UI.mode === 'paint' && !cellOk(UI.deck, UI.hold, i)) return; if (UI.mode === 'erase' && UI.erasePod && ho.cells[i] !== UI.erasePod) return; ho.cells[i] = UI.mode === 'paint' ? UI.pod : null; ho.pols[i] = UI.mode === 'paint' ? (ship().activePol || null) : null; }
+// Loaded cargo is protected: Load only paints empty space. Only Discharge (or Undo) removes cargo.
+const isProtected = (ho, i) => !!ho.cells[i];
+// Stacks in a hold: every POD/POL combination that has painted cargo or a drawn shape
+function holdStacks(o) {
+  const pl = o.pols || holdPols(o), st = new Set();
+  o.cells.forEach((c, i) => { if (c) st.add(c + '|' + (pl[i] || '')); });
+  (o.shapes || []).forEach(q => st.add(q.pod + '|' + (q.pol || '')));
+  return st;
+}
+// Every stack gets its own unit line (POD + POL) so units, brand and weight can be entered
+function ensureStackEntries(ho) {
+  let added = false;
+  holdStacks(ho).forEach(k => {
+    const [pod, pol] = k.split('|');
+    if (ho.entries.some(e => e.pod === pod && (!pol || (e.pol || '') === pol))) return;
+    const blank = ho.entries.find(e => e.pod === pod && !e.pol);
+    if (blank) blank.pol = pol; else ho.entries.push({ id: uid(), pod, pol, units: '', brand: '' });
+    added = true;
+  });
+  return added;
+}
+function paintCell(ho, c) { const i = c.y * GC + c.x; if (UI.mode === 'paint' && !cellOk(UI.deck, UI.hold, i)) return; if (UI.mode === 'paint' && isProtected(ho, i)) { UI.hitProtected = true; return; } if (UI.mode === 'erase' && UI.erasePod && ho.cells[i] !== UI.erasePod) return; ho.cells[i] = UI.mode === 'paint' ? UI.pod : null; ho.pols[i] = UI.mode === 'paint' ? (ship().activePol || null) : null; }
 function afterStroke(mode) {
-  const sh = ship(), ho = getHold(UI.deck, UI.hold, true), present = holdPresent(ho);
+  if (UI.hitProtected) { UI.hitProtected = false; if (mode === 'paint') setTimeout(() => toast('Cargo already loaded there was not painted over. Use Discharge (or Undo) to remove it first.', 4500), 60); }
+  const ho = getHold(UI.deck, UI.hold, true);
   save(); refreshHoldMeta();
   if (mode === 'paint') {
-    let added = false;
-    present.forEach(pod => { if (!ho.entries.some(e => e.pod === pod)) { ho.entries.push({ id: uid(), pod, pol: sh.activePol || '', units: '', brand: '' }); added = true; } });
-    if (added) { $('#entries').innerHTML = entriesHtml(ho); save(); toast('Enter the number of units below.'); }
+    if (ensureStackEntries(ho)) { $('#entries').innerHTML = entriesHtml(ho); save(); toast('Enter the number of units below.'); }
   } else {
-    const orphan = [...new Set(ho.entries.map(e => e.pod))].filter(p => !present.has(p));
-    if (orphan.length) {
-      const names = orphan.map(code).join(', ');
-      confirmBox(`No ${names} colour is left in this hold. Remove the ${names} units from this hold too?`, 'Remove units').then(ok => {
-        if (!ok) return; ho.entries = ho.entries.filter(e => !orphan.includes(e.pod)); save(); $('#entries').innerHTML = entriesHtml(ho); refreshHoldMeta();
+    // stacks that existed before this action and are completely gone now
+    const before = UI.undo.length ? holdStacks(UI.undo[UI.undo.length - 1]) : new Set(), now = holdStacks(ho);
+    const gone = [...before].filter(k => !now.has(k)), isGone = e => gone.includes(e.pod + '|' + (e.pol || ''));
+    if (ho.entries.some(isGone)) {
+      const names = gone.filter(k => ho.entries.some(e => e.pod + '|' + (e.pol || '') === k)).map(k => { const [pod, pol] = k.split('|'); return `${code(pod)}/${pol ? code(pol) : '?'}`; }).join(', ');
+      confirmBox(`No ${names} cargo is left in this hold. Remove the ${names} units from this hold too?`, 'Remove units').then(ok => {
+        if (!ok) return; ho.entries = ho.entries.filter(e => !isGone(e)); save(); $('#entries').innerHTML = entriesHtml(ho); refreshHoldMeta();
       });
     }
   }
@@ -1682,11 +1705,11 @@ document.addEventListener('click', async e => {
       break; }
     case 'pickErase': UI.erasePod = v || null; if (UI.view === 'deck5') { $('#d5Tools').innerHTML = d5ToolsHtml(); } else rerender(); break;
     case 'dkpoly': if (v === 'finish') dkPolyFinish(); else if (v === 'cancel') { UI.dkPoly = null; dkPolyDraw(); } else if (UI.dkPoly) { UI.dkPoly.pts.pop(); if (!UI.dkPoly.pts.length) UI.dkPoly = null; dkPolyDraw(); } break;
-    case 'pickPod': UI.pod = v; $$('.chip').forEach(c => c.classList.toggle('on', c.dataset.v === v)); { const f = $('[data-act="fillHold"]'); if (f) f.textContent = `Fill Hold ${UI.hold} with ${code(v)}`; const r = $('[data-act="fillRest"]'); if (r) r.textContent = `Fill remaining of Hold ${UI.hold} with ${code(v)}`; } break;
+    case 'pickPod': UI.pod = v; $$('.chip').forEach(c => c.classList.toggle('on', c.dataset.v === v)); { const f = $('[data-act="fillHold"]'); const r = $('[data-act="fillRest"]'); if (r) r.textContent = `Fill free space of Hold ${UI.hold} with ${code(v)}`; } break;
     case 'undo': { const ho = getHold(UI.deck, UI.hold, true); if (UI.undo.length) { const u = UI.undo.pop(); ho.cells = u.cells; ho.pols = u.pols || holdPols({ cells: u.cells, entries: ho.entries }); ho.arrows = u.arrows; ho.evs = u.evs || []; ho.shapes = u.shapes || []; if (UI.mode === 'ev' || UI.mode === 'arrow') rerender(); else { drawHoldGrid(); refreshHoldMeta(); } save(); } break; }
     case 'brush': UI.brush = v === 'rect' ? 'rect' : +v; $$('[data-act=brush]').forEach(x => x.classList.toggle('on', x.dataset.v === v)); break;
     case 'fillRest': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); let n = 0; ho.cells.forEach((c, i) => { if (!c && cellOk(UI.deck, UI.hold, i)) { ho.cells[i] = UI.pod; ho.pols[i] = sh.activePol || null; n++; } }); if (!n) { UI.undo.pop(); toast('Hold ' + UI.hold + ' has no empty space left.'); break; } drawHoldGrid(); afterStroke('paint'); } break;
-    case 'fillHold': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.forEach((c, i) => { if (cellOk(UI.deck, UI.hold, i)) { ho.cells[i] = UI.pod; ho.pols[i] = sh.activePol || null; } }); drawHoldGrid(); afterStroke('paint'); } break;
+    case 'fillHold': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.forEach((c, i) => { if (!cellOk(UI.deck, UI.hold, i)) return; if (isProtected(ho, i)) { UI.hitProtected = true; return; } ho.cells[i] = UI.pod; ho.pols[i] = sh.activePol || null; }); drawHoldGrid(); afterStroke('paint'); } break;
     case 'clearEvs': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.evs.length} EV marks (${ho.evs.reduce((t, v) => t + evN(v), 0)} EV cars) from this hold?`, 'Remove EV marks')) { pushUndo(); ho.evs = []; save(); rerender(); } break; }
     case 'clearArrows': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.arrows.length} arrows from this hold?`, 'Remove arrows')) { pushUndo(); ho.arrows = []; save(); rerender(); } break; }
     case 'clearHold': {
