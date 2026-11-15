@@ -54,17 +54,17 @@ const DECKNAME = d => (d === 12 ? 'Garage' : `No. ${d} Car Deck`);
 const lin = (v, m) => m[1] + (v - m[0]) * (m[3] - m[1]) / (m[2] - m[0]);
 
 function stabStacks() {
-  const sh = ship(), defW = num(sh.stabDefWt || 1.6), out = [];
+  const sh = ship(), out = [];   // weight not entered = 0 t
   for (const d of DECKS) {
     for (const h of holdsFor(d)) {
       const std = STAB_FULL[d] && STAB_FULL[d][h];
       if (d === 5) {
         const items = sh.deck5.shapes.filter(s => s.type !== 'ev' && shapeHold(s) === h), keys = [...new Set(items.map(s => s.pod + '|' + (s.pol || '')))];
         keys.forEach(k => {
-          const its = items.filter(s => s.pod + '|' + (s.pol || '') === k); let n = 0, w = 0, mx = 0, my = 0;
-          its.forEach(s => { const t = s.type === 'mafi' ? mafiTotals(s) : null, u = s.type === 'mafi' ? 0 : s.type === 'pkg' ? num(s.pkgs) : num(s.units), wt = t ? t.mt : (num(s.wt) || defW) * Math.max(u, 1), b = bbox(s); n += u; w += wt; mx += (b.x + b.w / 2) * wt; my += (b.y + b.h / 2) * wt; });
+          const its = items.filter(s => s.pod + '|' + (s.pol || '') === k); let n = 0, w = 0, mx = 0, my = 0, pws = 0;
+          its.forEach(s => { const t = s.type === 'mafi' ? mafiTotals(s) : null, u = s.type === 'mafi' ? 0 : s.type === 'pkg' ? num(s.pkgs) : num(s.units), wt = t ? t.mt : num(s.wt) * Math.max(u, 1), pw = wt || 1e-6, b = bbox(s); n += u; w += wt; pws += pw; mx += (b.x + b.w / 2) * pw; my += (b.y + b.h / 2) * pw; });
           const [pod, pol] = k.split('|'), M = STABMAP[5];
-          out.push({ d, h, pod, pol, n, w, lcg: M ? lin(mx / w, M.x) : std ? std[0] : null, tcg: M ? lin(my / w, M.y) : std ? std[1] : null, src: M ? 'plan' : 'standard (plan not added)', kg: deckKG(5) });
+          out.push({ d, h, pod, pol, n, w, lcg: M ? lin(mx / pws, M.x) : std ? std[0] : null, tcg: M ? lin(my / pws, M.y) : std ? std[1] : null, src: M ? 'plan' : 'standard (plan not added)', kg: deckKG(5) });
         });
         continue;
       }
@@ -75,7 +75,7 @@ function stabStacks() {
       const full = paintable && painted / paintable >= 0.97;
       keys.forEach(k => {
         const [pod, pol] = k.split('|'), ents = o.entries.filter(e => e.pod === pod && (e.pol || '') === pol);
-        const n = ents.reduce((a, e) => a + num(e.units), 0), w = ents.reduce((a, e) => a + num(e.units) * (num(e.wt) || defW), 0);
+        const n = ents.reduce((a, e) => a + num(e.units), 0), w = ents.reduce((a, e) => a + num(e.units) * num(e.wt), 0);
         const fs = figs.filter(f => f.pod === pod && (f.pol || '') === pol), area = fs.reduce((a, f) => a + f.area, 0);
         let lcg = std ? std[0] : null, tcg = std ? std[1] : null, src = 'standard';
         if (full && keys.length === 1) src = 'standard (hold full)';
@@ -88,12 +88,11 @@ function stabStacks() {
   return out;
 }
 function tabStabHtml() {
-  const sh = ship(), rows = stabStacks(), defW = sh.stabDefWt || '1.6';
+  const sh = ship(), rows = stabStacks();
   const T = rows.reduce((a, r) => { a.n += r.n; a.w += r.w; if (r.lcg != null) { a.mx += r.w * r.lcg; a.my += r.w * r.tcg; a.wl += r.w; } if (r.kg != null) { a.mz += r.w * r.kg; a.wk += r.w; } return a; }, { n: 0, w: 0, mx: 0, my: 0, wl: 0, mz: 0, wk: 0 });
   const decks = DECKS.filter(d => rows.some(r => r.d === d));
   return `<div class="card">
-    <p class="muted">One point per stack (POD/POL) per hold. A full hold with one stack uses the standard loading condition. Otherwise the centre of the painted figures is used where the deck stability plan has been added (now: ${Object.keys(STABMAP).length === 12 ? 'all decks' : Object.keys(STABMAP).map(d => DECKNAME(+d)).join(', ')}); other decks use the standard hold values. KG = deck height + 0.7 m (deck heights added: ${Object.keys(DECK_BL).map(d => DECKNAME(+d) + ' ' + DECK_BL[d] + ' m').join(', ')}${Object.keys(PANEL_BL).length ? '; ' + Object.keys(PANEL_BL).map(d => `${DECKNAME(+d)} by panel: Low ${PANEL_BL[d].normal} / 1st ${PANEL_BL[d].mid} / 2nd ${PANEL_BL[d].full} m`).join(', ') : ''}).</p>
-    <label class="fld"><span>Weight per unit when not entered (t)</span><input inputmode="decimal" data-stab="defwt" value="${esc(defW)}"></label>
+    <p class="muted">One point per stack (POD/POL) per hold. A full hold with one stack uses the standard loading condition. Otherwise the centre of the painted figures is used. Weight not entered counts as 0 t.</p>
     <button class="btn primary" data-stab="pdf">Export to PDF</button>
     ${UI.pdfStab ? `<div class="pdfready"><p><b>${esc(UI.pdfStab.name)}</b> is ready.</p><button class="btn primary" data-act="sharePdf" data-v="pdfStab">Email PDF</button><button class="btn" data-act="savePdf" data-v="pdfStab">Save to Files</button></div>` : ''}
   </div>
@@ -111,7 +110,6 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-stab]'); if (!b || b.tagName === 'INPUT') return;
   if (b.dataset.stab === 'pdf') { b.disabled = true; b.textContent = 'Creating PDF…'; buildStabPdf().then(p => { UI.pdfStab = p; rerender(); toast('Stability PDF created.'); }).catch(err => { console.error(err); toast('Could not create PDF: ' + err.message); b.disabled = false; b.textContent = 'Export to PDF'; }); }
 });
-document.addEventListener('change', e => { if (e.target.dataset.stab === 'defwt') { ship().stabDefWt = e.target.value; save(); rerender(); } });
 
 /* =========================================================
    Deck plans PDF: all 12 decks, one per landscape page
@@ -119,11 +117,11 @@ document.addEventListener('change', e => { if (e.target.dataset.stab === 'defwt'
 // Stability points as PDF: Deck 12 → Deck 1, Hold 4 → Hold 1, one table per deck
 async function buildStabPdf() {
   const K = await pdfKit(), { sh, doc, AT, header, base, podCell, footer, fileBase } = K;
-  const rows = stabStacks(), defW = sh.stabDefWt || '1.6';
+  const rows = stabStacks();
   const T = rows.reduce((a, r) => { a.n += r.n; a.w += r.w; if (r.lcg != null) { a.mx += r.w * r.lcg; a.my += r.w * r.tcg; a.wl += r.w; } if (r.kg != null) { a.mz += r.w * r.kg; a.wk += r.w; } return a; }, { n: 0, w: 0, mx: 0, my: 0, wl: 0, mz: 0, wk: 0 });
   header('STABILITY – CARGO POINTS PER STACK');
   doc.setFontSize(9);
-  doc.text(`Total cargo: ${fmt(T.n)} units, ${fmt(T.w, 1)} t${T.wl ? `, Mid.G ${fmt(T.mx / T.wl, 2)} m, TCG ${fmt(T.my / T.wl, 2)} m` : ''}${T.wk ? `, KG ${fmt(T.mz / T.wk, 2)} m` : ''}.   Weight per unit when not entered: ${defW} t.  KG = deck height + ${KG_ADD} m.`, 10, 27);
+  doc.text(`Total cargo: ${fmt(T.n)} units, ${fmt(T.w, 1)} t${T.wl ? `, Mid.G ${fmt(T.mx / T.wl, 2)} m, TCG ${fmt(T.my / T.wl, 2)} m` : ''}${T.wk ? `, KG ${fmt(T.mz / T.wk, 2)} m` : ''}.`, 10, 27);
   let y = 32;
   for (const d of DECKS) {
     const list = rows.filter(r => r.d === d).sort((a, b) => b.h - a.h); if (!list.length) continue;
@@ -147,7 +145,7 @@ function svgToCanvas(svg, W, H) {
     img.src = url;
   });
 }
-const SVG_STYLE = `<style>.fig-lbl{font-weight:800;fill:#0e2036;paint-order:stroke;stroke:#fff;stroke-width:3px}.pnl-chg{stroke:#e00000;stroke-width:2.5;stroke-dasharray:5 4}.pnl-h{font-weight:800;fill:#c00000;paint-order:stroke;stroke:#fff;stroke-width:3px}.pnl-h.normal{fill:#0a6f9c}.pnl-h.mid{fill:#1b7f2a}.hstar{fill:#ffd400;stroke:#000;stroke-width:1.3}.selbox{fill:none}text{font-family:Helvetica,Arial,sans-serif}</style>`;
+const SVG_STYLE = `<style>.fig-lbl{font-weight:800;fill:#0e2036;paint-order:stroke;stroke:#fff;stroke-width:3px}.pnl-chg{stroke:#e00000;stroke-width:2.5;stroke-dasharray:5 4}.pnl-h{font-weight:800;fill:#c00000;paint-order:stroke;stroke:#fff;stroke-width:3px}.pnl-h.normal{fill:#0a6f9c}.pnl-h.mid{fill:#1b7f2a}.hstar{fill:#ffd400;stroke:#000;stroke-width:1.3}.pol-edge line{stroke:#0050ff;stroke-width:2.5;stroke-dasharray:6 4}.hold-brand{font-weight:800;fill:#0e2036;paint-order:stroke;stroke:#fff;stroke-width:3px}.selbox{fill:none}text{font-family:Helvetica,Arial,sans-serif}</style>`;
 function holdSummary(d, h) {
   const sh = ship(), m = {};
   const add = (pod, pol, u, p, t) => { const k = `${code(pod)}/${pol ? code(pol) : '?'}`; const a = (m[k] ||= { u: 0, p: 0, t: 0 }); a.u += u; a.p += p; a.t += t; };

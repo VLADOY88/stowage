@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 33;
+const APP_VERSION = 34;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -235,7 +235,16 @@ function cargoRows(sh = ship()) {
   }
   return rows;
 }
-const evCount = sh => Object.values(sh.holds).reduce((a, o) => a + (o.evs ? o.evs.length : 0), 0) + sh.deck5.shapes.filter(s => s.type === 'ev').length;
+// EV marks: one mark can stand for several EV cars (a stack). Hold marks: [x, y, pol, count]; Deck 5 marks: s.n
+const evN = v => Math.max(1, num(Array.isArray(v) ? v[3] : v.n) || 1);
+const evCount = sh => Object.values(sh.holds).reduce((a, o) => a + (o.evs || []).reduce((t, v) => t + evN(v), 0), 0) + sh.deck5.shapes.filter(s => s.type === 'ev').reduce((t, s) => t + evN(s), 0);
+const evBadgeSvg = (x, y, sz, n) => `<g class="ev-badge"><circle cx="${x + sz * 0.55}" cy="${y - sz * 0.45}" r="${sz * 0.36}" fill="#0e2036" stroke="#ffd400" stroke-width="${sz * 0.06}"/><text x="${x + sz * 0.55}" y="${y - sz * 0.45}" font-size="${sz * 0.42}" text-anchor="middle" dominant-baseline="central" fill="#fff" font-weight="800">${n}</text></g>`;
+function drawEvBadge(ctx, x, y, sz, n) { const cx = x + sz * 0.55, cy = y - sz * 0.45, r = sz * 0.36; ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fillStyle = '#0e2036'; ctx.fill(); ctx.lineWidth = sz * 0.06; ctx.strokeStyle = '#ffd400'; ctx.stroke(); ctx.fillStyle = '#fff'; ctx.font = `800 ${sz * 0.42}px Helvetica,Arial,sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(n), cx, cy + 0.5); ctx.restore(); }
+function evDialog(n, canRemove) {
+  return modal(`<h3 class="ch">EV mark</h3><label class="fld"><span>Number of EV cars at this mark</span><input id="evN" inputmode="numeric" value="${n || 1}"></label>
+    <div class="modal-btns">${canRemove ? '<button class="btn danger" data-v="del">Remove mark</button>' : ''}<button class="btn" data-v="0">Cancel</button><button class="btn primary" data-v="1">Save</button></div>`,
+    (ov, done) => { const i = $('#evN', ov); setTimeout(() => { i.focus(); i.select(); }, 60); ov.addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; done(b.dataset.v === '1' ? Math.max(1, Math.round(num(i.value)) || 1) : b.dataset.v === 'del' ? 'del' : null); }); });
+}
 function sumRows(rows) { return rows.reduce((a, r) => (a.units += r.units, a.pkgs += r.pkgs, a.mt += r.mt, a.mafis += r.mafis, a), { units: 0, pkgs: 0, mt: 0, mafis: 0 }); }
 function expStatus(p, act) {
   const eu = p.expUnits === '' || p.expUnits == null ? null : num(p.expUnits);
@@ -483,7 +492,7 @@ function drawShip(ctx, W, H, sh, T, pol) {
           ho.cells.forEach((v, n) => { if (!v || (pol && pl[n] !== pol)) return; const p = sh.ports.find(q => q.id === v); if (!p) return; ctx.fillStyle = p.color || '#ccc'; ctx.fillRect(x + (n % GC) * cw, y + Math.floor(n / GC) * ch, cw + 0.6, ch + 0.6); });
           (ho.shapes || []).filter(q => !pol || q.pol === pol).forEach(q => { const p = sh.ports.find(o => o.id === q.pod); ctx.beginPath(); q.pts.forEach((pt, i) => i ? ctx.lineTo(x + pt[0] * L.cw, y + pt[1] * L.rh) : ctx.moveTo(x + pt[0] * L.cw, y + pt[1] * L.rh)); ctx.closePath(); ctx.fillStyle = (p && p.color) || '#ccc'; ctx.fill(); ctx.lineWidth = 0.6; ctx.strokeStyle = '#1d2b3f'; ctx.stroke(); });
           if (show) (ho.arrows || []).forEach(r => drawArrow(ctx, x + r[0] * L.cw, y + r[1] * L.rh, x + r[2] * L.cw, y + r[3] * L.rh, Math.max(1.2, L.rh * 0.05)));
-          (ho.evs || []).filter(v => !pol || v[2] === pol || (v[2] == null && show)).forEach(v => drawBolt(ctx, x + v[0] * L.cw, y + v[1] * L.rh, Math.max(7, L.rh * 0.32)));
+          (ho.evs || []).filter(v => !pol || v[2] === pol || (v[2] == null && show)).forEach(v => { const bz = Math.max(7, L.rh * 0.32); drawBolt(ctx, x + v[0] * L.cw, y + v[1] * L.rh, bz); if (evN(v) > 1) drawEvBadge(ctx, x + v[0] * L.cw, y + v[1] * L.rh, bz, evN(v)); });
         }
       }
     }
@@ -507,7 +516,7 @@ function drawShip(ctx, W, H, sh, T, pol) {
         ctx.fill(); ctx.stroke();
       });
       ctx.restore();
-      sh.deck5.shapes.filter(q => q.type === 'ev' && (!pol || q.pol === pol)).forEach(q => drawBolt(ctx, X(q.x + q.w / 2), Y(q.y + q.h / 2), Math.max(7, L.rh * 0.32)));
+      sh.deck5.shapes.filter(q => q.type === 'ev' && (!pol || q.pol === pol)).forEach(q => { const bz = Math.max(7, L.rh * 0.32); drawBolt(ctx, X(q.x + q.w / 2), Y(q.y + q.h / 2), bz); if (evN(q) > 1) drawEvBadge(ctx, X(q.x + q.w / 2), Y(q.y + q.h / 2), bz, evN(q)); });
     }
     ctx.strokeStyle = T.line; ctx.lineWidth = 1; ctx.globalAlpha = 0.7;
     for (let j = 0; j < 4; j++) if (hs.includes(4 - j)) ctx.strokeRect(L.x0 + j * L.cw + 0.5, y + 0.5, L.cw - 1, L.rh - 1);
@@ -674,11 +683,12 @@ function tabExport() {
 /* =========================================================
    HOLD EDITOR
    ========================================================= */
+// Deck / hold navigation: fixed column on the right side of the screen
 function bottomNav() {
   const d = UI.view === 'deck5' ? 5 : UI.deck, hs = holdsFor(d);
-  return `<nav class="bnav">
-    <div class="brow"><span class="blbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>${h}</button>`; }).join('')}<button class="bchip wide ${(d === 5 ? UI.d5.zoom == null : UI.dv.all) ? 'on' : ''}" data-act="navHold" data-v="all">All</button></div>
-    <div class="brow"><span class="blbl">Deck</span><div class="dscroll">${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</div></div>
+  return `<nav class="bnav rail" aria-label="Decks and holds">
+    <div class="rgrp"><span class="rlbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h && !UI.dv.all : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>H${h}</button>`; }).join('')}<button class="bchip ${(d === 5 ? UI.d5.zoom == null : UI.dv.all) ? 'on' : ''}" data-act="navHold" data-v="all">All</button></div>
+    <div class="rgrp decks"><span class="rlbl">Deck</span>${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</div>
   </nav>`;
 }
 function eraseChips() {
@@ -691,7 +701,7 @@ function renderHold() {
   app.innerHTML = `
   <header class="top">
     <button class="ic" data-act="toShip" aria-label="Back to ship">${I.back}</button>
-    <div class="ttl"><b>Deck ${d}, Hold ${h}</b><span>${sh.activePol ? 'Current port ' + esc(code(sh.activePol)) : 'Set the current port in Ports'}${ho.evs.length ? `, ${ho.evs.length} EV` : ''}</span></div>
+    <div class="ttl"><b>Deck ${d}, Hold ${h}</b><span>${sh.activePol ? 'Current port ' + esc(code(sh.activePol)) : 'Set the current port in Ports'}${ho.evs.length ? `, ${ho.evs.reduce((t, v) => t + evN(v), 0)} EV` : ''}</span></div>
     <button class="ic" data-act="undo" id="undoBtn" aria-label="Undo" ${UI.undo.length ? '' : 'disabled'}>${I.undo}</button>
   </header>
   <main class="hold-main">
@@ -706,7 +716,7 @@ function renderHold() {
       <button data-act="mode" data-v="ev" class="${UI.mode === 'ev' ? 'on' : ''}">EV</button>
       ${d === 6 || d === 8 ? `<button data-act="mode" data-v="panels" class="${UI.mode === 'panels' ? 'on' : ''}">Panels</button>` : ''}
     </div>
-    ${UI.mode === 'panels' ? panelBarHtml(d) : UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the exact spot, or tap the deck. Drag a bolt to move it, tap it to remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow (up, down, left or right). Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
+    ${UI.mode === 'panels' ? panelBarHtml(d) : UI.mode === 'erase' ? eraseChips() : UI.mode === 'ev' ? `<div class="ev-bar"><span class="ev-drag" id="evDrag" aria-label="Drag EV mark onto the deck">${BOLT_ICON}</span><p>Drag the bolt onto the spot, or tap the deck, then enter the number of EV cars. Drag a bolt to move it, tap it to change the number or remove it.</p></div>` : UI.mode === 'arrow' ? `<p class="arrow-hint">Drag to draw a stowage direction arrow (up, down, left or right). Tap an arrow to remove it.</p>` : `<div class="chips ${UI.mode === 'erase' ? 'dim' : ''}">${dischPorts().map(p => `<button class="chip ${UI.pod === p.id ? 'on' : ''}" data-act="pickPod" data-v="${p.id}" style="--c:${p.color};--t:${textOn(p.color)}">${esc(p.code)}</button>`).join('') || '<span class="muted">Add discharging ports first.</span>'}</div>`}
     <div class="dk-bar"><div class="seg zoom"><button data-act="dkzoom" data-v="out" aria-label="Zoom out">−</button><button data-act="dkzoom" data-v="in" aria-label="Zoom in">+</button></div>${UI.mode === 'paint' || UI.mode === 'erase' ? `<div class="seg brush" aria-label="Tool size">${[[1, 'S'], [3, 'M'], [6, 'L'], ['rect', '▭ Area']].map(([v, n]) => `<button data-act="brush" data-v="${v}" class="${String(UI.brush) === String(v) ? 'on' : ''}">${n}</button>`).join('')}</div>` : `<span class="muted">Two fingers: zoom and move</span>`}${planToggleHtml()}</div>
     </div>
     ${UI.mode === 'draw' ? `<div class="poly-bar" id="dkPolyBar"></div>` : ''}
@@ -782,7 +792,7 @@ function dkMarksSvg(d, u = dkUpp()) {
   deckHolds(d).forEach(z => {
     const o = ship().holds[d + '-' + z.h]; if (!o) return; const W = z.x1 - z.x0;
     (o.arrows || []).forEach(r => { out += arrowSvg(z.x0 + r[0] * W, r[1] * g.h, z.x0 + r[2] * W, r[3] * g.h, u); });
-    (o.evs || []).forEach(v => { out += boltSvg(z.x0 + v[0] * W, v[1] * g.h, 24 * u); });
+    (o.evs || []).forEach(v => { const x = z.x0 + v[0] * W, y = v[1] * g.h; out += boltSvg(x, y, 24 * u) + evBadgeSvg(x, y, 24 * u, evN(v)); });
   });
   return out;
 }
@@ -794,12 +804,14 @@ function deckBodySvg(d, u, o = {}) {
     <image href="${href(`deck${d}.png`)}" x="0" y="0" width="${g.w}" height="${g.h}" preserveAspectRatio="none"/>
     ${o.plan ? planImageSvg(d) : ''}
     <g opacity=".72" mask="url(#hullMask)">${dkCellsSvg(d)}</g>
+    ${polEdgesSvg(d)}
     ${o.cur ? `<rect x="${o.cur.x0}" y="0.5" width="${o.cur.x1 - o.cur.x0}" height="${g.h - 1}" class="curhold"/>` : ''}
     ${deckHolds(d).map(z => `<text x="${(z.x0 + z.x1) / 2}" y="${12 * u + 2}" font-size="${11 * u}" class="dk-lbl" text-anchor="middle" fill="#33465f" font-weight="800">Hold ${z.h}</text>`).join('')}
     ${d >= 5 && d <= 8 ? panelLayerSvg(d, u, !!o.panels) : ''}
     <g id="dkMarks">${dkMarksSvg(d, u)}</g>
     ${deckHolds(d).map(z => { const hd = ship().holds[d + '-' + z.h], n = hd ? starCount(hd.height) : 0; return n ? starsSvg((z.x0 + z.x1) / 2, g.h / 2, 7 * u, n) : ''; }).join('')}
-    ${figureLabelsSvg(d, u)}`;
+    ${figureLabelsSvg(d, u)}
+    ${holdBrandsSvg(d, u)}`;
 }
 // Cargo figures of a hold: connected painted areas and drawn shapes, each with its POD/POL
 function holdFigures(d, h) {
@@ -816,6 +828,36 @@ function holdFigures(d, h) {
   }
   (o.shapes || []).forEach(q => { const W = z.x1 - z.x0, P = q.pts.map(p => [z.x0 + p[0] * W, p[1] * g.h]); let a = 0, cx = 0, cy = 0; P.forEach((p, i) => { const r = P[(i + 1) % P.length], c = p[0] * r[1] - r[0] * p[1]; a += c; cx += (p[0] + r[0]) * c; cy += (p[1] + r[1]) * c; }); a /= 2; if (Math.abs(a) < 1e-6) return; figs.push({ pod: q.pod, pol: q.pol, area: Math.abs(a) / (cw * ch), x: cx / (6 * a), y: cy / (6 * a), shape: q }); });
   return figs;
+}
+// Blue dotted line where cargo for the same POD meets cargo from a different POL
+function polEdgesSvg(d) {
+  const g = DECKPIC[d]; let out = '';
+  deckHolds(d).forEach(z => {
+    const o = ship().holds[d + '-' + z.h]; if (!o) return;
+    const pl = holdPols(o), cw = (z.x1 - z.x0) / GC, ch = g.h / GR, C = o.cells;
+    const diff = (a, b) => C[a] && C[a] === C[b] && (pl[a] || '') !== (pl[b] || '');
+    for (let c = 0; c < GC - 1; c++) {            // vertical edges, merged along rows
+      let r0 = -1;
+      for (let r = 0; r <= GR; r++) { const on = r < GR && diff(r * GC + c, r * GC + c + 1); if (on && r0 < 0) r0 = r; if (!on && r0 >= 0) { const x = z.x0 + (c + 1) * cw; out += `<line x1="${x}" y1="${r0 * ch}" x2="${x}" y2="${r * ch}"/>`; r0 = -1; } }
+    }
+    for (let r = 0; r < GR - 1; r++) {            // horizontal edges, merged along columns
+      let c0 = -1;
+      for (let c = 0; c <= GC; c++) { const on = c < GC && diff(r * GC + c, (r + 1) * GC + c); if (on && c0 < 0) c0 = c; if (!on && c0 >= 0) { const y = (r + 1) * ch; out += `<line x1="${z.x0 + c0 * cw}" y1="${y}" x2="${z.x0 + c * cw}" y2="${y}"/>`; c0 = -1; } }
+    }
+  });
+  return out ? `<g class="pol-edge" mask="url(#hullMask)">${out}</g>` : '';
+}
+// Brands of the hold's unit lines, top right corner of each hold
+function holdBrandsSvg(d, u) {
+  const g = DECKPIC[d]; let out = '';
+  deckHolds(d).forEach(z => {
+    const o = ship().holds[d + '-' + z.h]; if (!o) return;
+    const br = [...new Set(o.entries.map(e => (e.brand || '').trim()).filter(Boolean))]; if (!br.length) return;
+    const fs = 10 * u;
+    br.slice(0, 6).forEach((b, i) => { out += `<text x="${z.x1 - 4 * u}" y="${24 * u + 4 + i * fs * 1.2}" font-size="${fs}" text-anchor="end" class="hold-brand">${esc(b.length > 32 ? b.slice(0, 31) + '…' : b)}</text>`; });
+    if (br.length > 6) out += `<text x="${z.x1 - 4 * u}" y="${24 * u + 4 + 6 * fs * 1.2}" font-size="${fs}" text-anchor="end" class="hold-brand">+${br.length - 6} more</text>`;
+  });
+  return out;
 }
 function figureLabelsSvg(d, u) {
   let out = '';
@@ -936,7 +978,7 @@ function bindDeck() {
     else if (act.k === 'arrow') { const q = Math.abs(p[0] - act.a[0]) >= Math.abs(p[1] - act.a[1]) ? [p[0], act.a[1]] : [act.a[0], p[1]]; act.b = q; $('#dkTmp').innerHTML = `<g opacity=".6">${arrowSvg(act.a[0], act.a[1], q[0], q[1], dkUpp())}</g>`; }
     else if (act.k === 'evmove') {
       if (!act.moved && Math.hypot(e.clientX - act.c[0], e.clientY - act.c[1]) > 6) { act.moved = true; pushUndo(); }
-      if (act.moved) { const ho = getHold(d, act.z.h, true), f = frac(act.z, p); ho.evs[act.i] = [f[0], f[1], ho.evs[act.i][2] ?? null]; $('#dkMarks').innerHTML = dkMarksSvg(d); }
+      if (act.moved) { const ho = getHold(d, act.z.h, true), f = frac(act.z, p); ho.evs[act.i] = [f[0], f[1], ho.evs[act.i][2] ?? null, ho.evs[act.i][3] || 1]; $('#dkMarks').innerHTML = dkMarksSvg(d); }
     }
   };
   svg.onpointerup = svg.onpointercancel = e => {
@@ -975,8 +1017,15 @@ function bindDeck() {
       }
       pushUndo(); ho.arrows.push([...frac(A.z, A.a), ...frac(A.z, b)]); finish(true); return;
     }
-    if (A.k === 'evmove') { if (A.moved) { finish(false); drawHoldGrid(); return; } pushUndo(); ho.evs.splice(A.i, 1); toast('EV mark removed. Undo restores it.'); finish(true); return; }
-    if (A.k === 'evnew') { if (Math.hypot(e.clientX - A.c[0], e.clientY - A.c[1]) > 10) { if (A.switched) rerender(); return; } pushUndo(); ho.evs.push([...frac(A.z, A.a), sh.activePol || null]); finish(true); }
+    if (A.k === 'evmove') {
+      if (A.moved) { finish(false); drawHoldGrid(); return; }
+      evDialog(evN(ho.evs[A.i]), true).then(r => { if (r == null) { if (A.switched) rerender(); return; } pushUndo(); if (r === 'del') { ho.evs.splice(A.i, 1); toast('EV mark removed. Undo restores it.'); } else ho.evs[A.i][3] = r; finish(true); });
+      return;
+    }
+    if (A.k === 'evnew') {
+      if (Math.hypot(e.clientX - A.c[0], e.clientY - A.c[1]) > 10) { if (A.switched) rerender(); return; }
+      evDialog(1, false).then(r => { if (r == null) { if (A.switched) rerender(); return; } pushUndo(); ho.evs.push([...frac(A.z, A.a), sh.activePol || null, r]); finish(true); });
+    }
   };
   // drag the bolt from the bar onto the deck
   const src = $('#evDrag');
@@ -988,8 +1037,8 @@ function bindDeck() {
     src.onpointerup = src.onpointercancel = e => {
       if (!ghost) return; ghost.remove(); ghost = null; UI.evTmp = null;
       if (e.type === 'pointerup' && over(e)) {
-        const p = pt(e.clientX, e.clientY), z = holdAt(p[0]); switchHold(z); pushUndo();
-        getHold(d, z.h, true).evs.push([...frac(z, p), sh.activePol || null]); save(); rerender();
+        const p = pt(e.clientX, e.clientY), z = holdAt(p[0]); switchHold(z);
+        evDialog(1, false).then(r => { if (r == null) { rerender(); return; } pushUndo(); getHold(d, z.h, true).evs.push([...frac(z, p), sh.activePol || null, r]); save(); rerender(); });
       } else drawHoldGrid();
     };
   }
@@ -1123,7 +1172,7 @@ function fitLabel(s) {
 function shapeSvg(s) {
   if (s.type === 'ev') {
     const sel = UI.d5.sel === s.id;
-    return `<g data-id="${s.id}"><rect x="${s.x - 4}" y="${s.y - 4}" width="${s.w + 8}" height="${s.h + 8}" fill="transparent"/>${boltSvg(s.x + s.w / 2, s.y + s.h / 2, s.w)}${sel ? `<rect x="${s.x - 4}" y="${s.y - 4}" width="${s.w + 8}" height="${s.h + 8}" fill="none" class="selbox"/>` : ''}</g>`;
+    return `<g data-id="${s.id}"><rect x="${s.x - 4}" y="${s.y - 4}" width="${s.w + 8}" height="${s.h + 8}" fill="transparent"/>${boltSvg(s.x + s.w / 2, s.y + s.h / 2, s.w)}${evBadgeSvg(s.x + s.w / 2, s.y + s.h / 2, s.w, evN(s))}${sel ? `<rect x="${s.x - 4}" y="${s.y - 4}" width="${s.w + 8}" height="${s.h + 8}" fill="none" class="selbox"/>` : ''}</g>`;
   }
   const c = colorOf(s.pod), tc = textOn(c), sel = UI.d5.sel === s.id, { box: b, fs, lines, cx } = fitLabel(s);
   const body = s.type === 'free'
@@ -1294,8 +1343,8 @@ function bindD5() {
       const p = d.a;
       pushD5();
       if (UI.d5.tool === 'ev') {
-        const s = { id: uid(), type: 'ev', x: clamp(p[0] - 13, 0, D5W - 26), y: clamp(p[1] - 13, 0, D5H - 26), w: 26, h: 26, pol: sh.activePol || null };
-        sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5();
+        const s = { id: uid(), type: 'ev', x: clamp(p[0] - 13, 0, D5W - 26), y: clamp(p[1] - 13, 0, D5H - 26), w: 26, h: 26, pol: sh.activePol || null, n: '1' };
+        sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5(); openSheet(s);
       } else if (UI.d5.tool === 'pkg') {
         const s = { id: uid(), type: 'pkg', x: clamp(p[0] - 25, 0, D5W - 50), y: clamp(p[1] - 15, 0, D5H - 30), w: 50, h: 30, pod: UI.pod, pol: sh.activePol || '', pkgs: '1', mt: '', label: '' };
         sh.deck5.shapes.push(s); UI.d5.sel = s.id; save(); drawD5(); setTool('select'); openSheet(s);
@@ -1323,7 +1372,7 @@ function bindD5() {
 }
 function sheetBody(s) {
   const hold = shapeHold(s);
-  if (s.type === 'ev') return `<p>Electric vehicle mark in Hold ${hold}. Drag it on the deck to move it.</p>`;
+  if (s.type === 'ev') return `<label class="fld"><span>Number of EV cars at this mark</span><input data-sb="n" inputmode="numeric" value="${esc(s.n || '1')}"></label><p class="muted">EV mark in Hold ${hold}. Drag it on the deck to move it.</p>`;
   const top = `<div class="grid2">
       <label class="fld"><span>POD</span><select data-sb="pod">${portOpts(dischPorts(), s.pod)}</select></label>
       <label class="fld"><span>POL</span><select data-sb="pol"><option value="">Select</option>${portOpts(loadPorts(), s.pol)}</select></label>
@@ -1382,7 +1431,7 @@ function openSheet(s) {
 function drawD5Shapes(ctx, sh, labels, pol) {
   for (const s of sh.deck5.shapes) {
     if (pol && s.pol !== pol) continue;
-    if (s.type === 'ev') { if (labels) drawBolt(ctx, s.x + s.w / 2, s.y + s.h / 2, s.w); continue; }
+    if (s.type === 'ev') { if (labels) { drawBolt(ctx, s.x + s.w / 2, s.y + s.h / 2, s.w); drawEvBadge(ctx, s.x + s.w / 2, s.y + s.h / 2, s.w, evN(s)); } continue; }
     const p = sh.ports.find(q => q.id === s.pod), c = (p && p.color) || '#cfd8e3';
     ctx.fillStyle = c; ctx.strokeStyle = '#1d2b3f'; ctx.lineWidth = s.type === 'mafi' ? 2.6 : 1.3;
     ctx.beginPath();
@@ -1631,7 +1680,7 @@ document.addEventListener('click', async e => {
     case 'brush': UI.brush = v === 'rect' ? 'rect' : +v; $$('[data-act=brush]').forEach(x => x.classList.toggle('on', x.dataset.v === v)); break;
     case 'fillRest': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); let n = 0; ho.cells.forEach((c, i) => { if (!c && cellOk(UI.deck, UI.hold, i)) { ho.cells[i] = UI.pod; ho.pols[i] = sh.activePol || null; n++; } }); if (!n) { UI.undo.pop(); toast('Hold ' + UI.hold + ' has no empty space left.'); break; } drawHoldGrid(); afterStroke('paint'); } break;
     case 'fillHold': if (!UI.pod) break; { pushUndo(); const ho = getHold(UI.deck, UI.hold, true); ho.cells.forEach((c, i) => { if (cellOk(UI.deck, UI.hold, i)) { ho.cells[i] = UI.pod; ho.pols[i] = sh.activePol || null; } }); drawHoldGrid(); afterStroke('paint'); } break;
-    case 'clearEvs': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.evs.length} EV marks from this hold?`, 'Remove EV marks')) { pushUndo(); ho.evs = []; save(); rerender(); } break; }
+    case 'clearEvs': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.evs.length} EV marks (${ho.evs.reduce((t, v) => t + evN(v), 0)} EV cars) from this hold?`, 'Remove EV marks')) { pushUndo(); ho.evs = []; save(); rerender(); } break; }
     case 'clearArrows': { const ho = getHold(UI.deck, UI.hold, true); if (await confirmBox(`Remove all ${ho.arrows.length} arrows from this hold?`, 'Remove arrows')) { pushUndo(); ho.arrows = []; save(); rerender(); } break; }
     case 'clearHold': {
       const ho = getHold(UI.deck, UI.hold, true), ep = UI.erasePod;

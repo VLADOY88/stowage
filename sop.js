@@ -125,7 +125,29 @@ async function sopDraw(n, el) {
     const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
     await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
     if (!el.isConnected) return; el.querySelector('canvas')?.remove(); el.append(cv);
+    // clickable links (contents, cross references, web links) over the page picture
+    el.querySelector('.sop-links')?.remove();
+    const anns = (await page.getAnnotations()).filter(a => a.subtype === 'Link' && (a.dest || a.url));
+    if (anns.length) {
+      const lay = document.createElement('div'); lay.className = 'sop-links';
+      anns.forEach(a => {
+        const [x1, y1, x2, y2] = a.rect, W = vp0.width, H = vp0.height, l = document.createElement('a');
+        l.style.left = (Math.min(x1, x2) / W * 100) + '%'; l.style.width = (Math.abs(x2 - x1) / W * 100) + '%';
+        l.style.top = ((H - Math.max(y1, y2)) / H * 100) + '%'; l.style.height = (Math.abs(y2 - y1) / H * 100) + '%';
+        if (a.url) { l.href = a.url; l.target = '_blank'; l.rel = 'noopener'; l.title = a.url; }
+        else { l.href = '#'; l.onclick = ev => { ev.preventDefault(); sopFollow(a.dest); }; }
+        lay.append(l);
+      });
+      el.append(lay);
+    }
   } catch (e) { SOP.rendered.delete(n); }
+}
+async function sopFollow(dest) {
+  try {
+    const d = typeof dest === 'string' ? await SOP.doc.getDestination(dest) : dest; if (!d) return;
+    const ref = d[0], idx = typeof ref === 'number' ? ref : await SOP.doc.getPageIndex(ref);
+    sopGoto(idx + 1);
+  } catch (e) { toast('This link could not be followed.'); }
 }
 function sopGoto(n) { S.sopPage = clamp(n, 1, SOP.meta.pages); save(); const el = document.querySelector(`.sop-page[data-p="${S.sopPage}"]`); if (el) el.scrollIntoView({ block: 'start' }); }
 function sopSheet(html, bind) {

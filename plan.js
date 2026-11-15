@@ -285,14 +285,14 @@ function tabPlanHtml() {
       const bk = bookedFor(p.id); if (!bk.rows.length) return '';
       const mine = rows.filter(r => r.pol === p.id), act = sumRows(mine);
       const pods = [...new Set([...bk.rows.map(r => bkPort(r.d)).filter(Boolean), ...mine.map(r => r.pod)])];
-      const evLoaded = Object.values(sh.holds).reduce((a, o) => a + (o.evs || []).filter(v => v[2] === p.id).length, 0) + sh.deck5.shapes.filter(s => s.type === 'ev' && s.pol === p.id).length;
+      const evLoaded = Object.values(sh.holds).reduce((a, o) => a + (o.evs || []).filter(v => v[2] === p.id).reduce((t, v) => t + evN(v), 0), 0) + sh.deck5.shapes.filter(s => s.type === 'ev' && s.pol === p.id).reduce((t, s) => t + evN(s), 0);
       const mafiLoaded = sh.deck5.shapes.filter(s => s.type === 'mafi' && s.pol === p.id).reduce((a, s) => a + s.mafis.length, 0);
       const cls = (x, y) => (!x && !y ? '' : x === y ? 'ok' : x > y ? 'over' : '');
       return `<details class="card pol-group" ${p.id === sh.activePol ? 'open' : ''}><summary>${esc(p.name)} (${esc(p.code)}): booked ${fmt(bk.units)} units, ${fmt(bk.pkgs)} PKGs; loaded ${fmt(act.units)} / ${fmt(act.pkgs)}</summary>
         <table class="tbl"><thead><tr><th>POD</th><th>Booked units</th><th>Loaded</th><th>Booked PKGs</th><th>Loaded</th></tr></thead><tbody>
         ${pods.map(pod => { const bb = bookedFor(p.id, pod), a = sumRows(mine.filter(r => r.pod === pod)); return `<tr><td><i class="dot" style="background:${colorOf(pod)}"></i>${esc(code(pod))}</td><td>${fmt(bb.units)}</td><td class="${cls(a.units, bb.units)}">${fmt(a.units)}</td><td>${fmt(bb.pkgs)}</td><td class="${cls(a.pkgs, bb.pkgs)}">${fmt(a.pkgs)}</td></tr>`; }).join('')}
         </tbody><tfoot><tr><td>Total</td><td>${fmt(bk.units)}</td><td class="${cls(act.units, bk.units)}">${fmt(act.units)}</td><td>${fmt(bk.pkgs)}</td><td class="${cls(act.pkgs, bk.pkgs)}">${fmt(act.pkgs)}</td></tr></tfoot></table>
-        <p class="muted small">EV booked ${fmt(bk.ev)}, EV marks placed ${evLoaded}. MAFIs booked ${fmt(bk.mafi)}, on Deck 5 ${mafiLoaded}. Units ≥5 MT booked: ${fmt(bk.heavy.reduce((a, r) => a + r.units, 0))}.</p></details>`;
+        <p class="muted small">EV booked ${fmt(bk.ev)}, EV cars marked ${evLoaded}. MAFIs booked ${fmt(bk.mafi)}, on Deck 5 ${mafiLoaded}. Units ≥5 MT booked: ${fmt(bk.heavy.reduce((a, r) => a + r.units, 0))}.</p></details>`;
     }).join('');
   }
   const pref = sh.lashPref || 'auto';
