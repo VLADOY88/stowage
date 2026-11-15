@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 34;
+const APP_VERSION = 35;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -683,13 +683,11 @@ function tabExport() {
 /* =========================================================
    HOLD EDITOR
    ========================================================= */
-// Deck / hold navigation: fixed column on the right side of the screen
+// Hold buttons fixed at the bottom, deck buttons fixed in a column on the right
 function bottomNav() {
   const d = UI.view === 'deck5' ? 5 : UI.deck, hs = holdsFor(d);
-  return `<nav class="bnav rail" aria-label="Decks and holds">
-    <div class="rgrp"><span class="rlbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h && !UI.dv.all : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>H${h}</button>`; }).join('')}<button class="bchip ${(d === 5 ? UI.d5.zoom == null : UI.dv.all) ? 'on' : ''}" data-act="navHold" data-v="all">All</button></div>
-    <div class="rgrp decks"><span class="rlbl">Deck</span>${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</div>
-  </nav>`;
+  return `<nav class="bnav holdbar" aria-label="Holds"><div class="brow"><span class="blbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h && !UI.dv.all : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>${h}</button>`; }).join('')}<button class="bchip wide ${(d === 5 ? UI.d5.zoom == null : UI.dv.all) ? 'on' : ''}" data-act="navHold" data-v="all">All</button></div></nav>
+  <nav class="rail" aria-label="Decks"><span class="rlbl">Deck</span>${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</nav>`;
 }
 function eraseChips() {
   const list = dischPorts();

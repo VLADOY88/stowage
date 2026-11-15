@@ -383,20 +383,22 @@ mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; 
 .pol-edge line { stroke: #0050ff; stroke-width: 2.5; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .hold-brand { font-weight: 800; fill: #0e2036; paint-order: stroke; stroke: #fff; stroke-width: 3px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .ev-badge { pointer-events: none; }
-/* Deck / hold rail on the right */
-.view-hold, .view-deck5 { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important; padding-right: calc(env(safe-area-inset-right, 0px) + 56px) !important; }
-.bnav.rail { position: fixed; left: auto; right: 0; bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 54px); width: calc(52px + env(safe-area-inset-right, 0px)); max-height: calc(100svh - env(safe-area-inset-top, 0px) - 60px); overflow-y: auto; scrollbar-width: none;
-  display: flex; flex-direction: column; gap: 8px; padding: 6px calc(env(safe-area-inset-right, 0px) + 4px) 6px 4px; border-top: 0; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 12px 0 0 12px; box-shadow: -2px 0 10px rgba(0,0,0,.12); }
-.bnav.rail::-webkit-scrollbar { display: none; }
-.rail .rgrp { display: flex; flex-direction: column; gap: 3px; }
+/* Hold bar at the bottom, deck rail on the right */
+.view-hold, .view-deck5 { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 66px) !important; padding-right: calc(env(safe-area-inset-right, 0px) + 54px) !important; }
+.bnav.holdbar { left: 0; right: calc(env(safe-area-inset-right, 0px) + 50px); display: block; padding: 6px 8px calc(env(safe-area-inset-bottom, 0px) + 6px); }
+.holdbar .brow { justify-content: center; }
+.holdbar .bchip { min-width: 52px; }
+.rail { position: fixed; right: 0; top: calc(env(safe-area-inset-top, 0px) + 54px); bottom: 0; z-index: 26; width: calc(50px + env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 3px;
+  padding: 6px calc(env(safe-area-inset-right, 0px) + 4px) calc(env(safe-area-inset-bottom, 0px) + 6px) 4px; background: var(--surface); border-left: 1px solid var(--line); border-radius: 12px 0 0 0; overflow-y: auto; scrollbar-width: none; }
+.rail::-webkit-scrollbar { display: none; }
 .rail .rlbl { font-size: 10px; font-weight: 800; color: var(--muted); text-align: center; text-transform: uppercase; letter-spacing: .04em; }
-.rail .bchip { width: 100%; min-width: 0; height: 34px; padding: 0; font-size: 14px; }
+.rail .bchip { width: 100%; min-width: 0; height: 36px; padding: 0; font-size: 15px; flex: none; }
 @media (orientation: landscape) and (max-height: 500px) {
-  .view-hold, .view-deck5 { padding-right: calc(env(safe-area-inset-right, 0px) + 98px) !important; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important; }
-  .bnav.rail { top: 0; max-height: 100svh; height: 100svh; flex-direction: row; gap: 4px; width: calc(94px + env(safe-area-inset-right, 0px)); padding-top: calc(env(safe-area-inset-top, 0px) + 4px); border-radius: 0; }
-  .rail .rgrp { width: 42px; }
-  .rail .rgrp .bchip { height: calc((100svh - 40px) / 13 - 3px); min-height: 22px; font-size: 13px; }
-  .view-hold .bnav.rail, .view-deck5 .bnav.rail { display: flex; padding-left: 4px; }
+  .view-hold, .view-deck5 { padding-right: calc(env(safe-area-inset-right, 0px) + 54px) !important; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 54px) !important; }
+  .rail { top: 0; padding-top: calc(env(safe-area-inset-top, 0px) + 4px); border-radius: 0; gap: 2px; }
+  .rail .bchip { height: calc((100svh - 30px) / 12 - 2px); min-height: 22px; font-size: 13px; }
+  .view-hold .bnav.holdbar, .view-deck5 .bnav.holdbar { display: block; padding-top: 4px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4px); }
+  .holdbar .bchip { height: 34px; }
 }
 #toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); }
 .sop-links { position: absolute; inset: 0; }
