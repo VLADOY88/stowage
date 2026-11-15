@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 35;
+const APP_VERSION = 36;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -683,11 +683,12 @@ function tabExport() {
 /* =========================================================
    HOLD EDITOR
    ========================================================= */
-// Hold buttons fixed at the bottom, deck buttons fixed in a column on the right
 function bottomNav() {
   const d = UI.view === 'deck5' ? 5 : UI.deck, hs = holdsFor(d);
-  return `<nav class="bnav holdbar" aria-label="Holds"><div class="brow"><span class="blbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h && !UI.dv.all : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>${h}</button>`; }).join('')}<button class="bchip wide ${(d === 5 ? UI.d5.zoom == null : UI.dv.all) ? 'on' : ''}" data-act="navHold" data-v="all">All</button></div></nav>
-  <nav class="rail" aria-label="Decks"><span class="rlbl">Deck</span>${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</nav>`;
+  return `<nav class="bnav">
+    <div class="brow"><span class="blbl">Hold</span>${[4, 3, 2, 1].map(h => { const on = UI.view === 'hold' ? UI.hold === h && !UI.dv.all : UI.d5.zoom === h; return `<button class="bchip ${on ? 'on' : ''}" data-act="navHold" data-v="${h}" ${hs.includes(h) ? '' : 'disabled'}>${h}</button>`; }).join('')}<button class="bchip wide ${(d === 5 ? UI.d5.zoom == null : UI.dv.all) ? 'on' : ''}" data-act="navHold" data-v="all">All</button></div>
+    <div class="brow"><span class="blbl">Deck</span><div class="dscroll">${DECKS.map(x => `<button class="bchip ${x === d ? 'on' : ''}" data-act="navDeck" data-v="${x}">${x}</button>`).join('')}</div></div>
+  </nav>`;
 }
 function eraseChips() {
   const list = dischPorts();
@@ -845,15 +846,23 @@ function polEdgesSvg(d) {
   });
   return out ? `<g class="pol-edge" mask="url(#hullMask)">${out}</g>` : '';
 }
-// Brands of the hold's unit lines, top right corner of each hold
+// Brands of each stack (POD/POL), written in the top right corner of that stack's area
 function holdBrandsSvg(d, u) {
   const g = DECKPIC[d]; let out = '';
   deckHolds(d).forEach(z => {
     const o = ship().holds[d + '-' + z.h]; if (!o) return;
-    const br = [...new Set(o.entries.map(e => (e.brand || '').trim()).filter(Boolean))]; if (!br.length) return;
-    const fs = 10 * u;
-    br.slice(0, 6).forEach((b, i) => { out += `<text x="${z.x1 - 4 * u}" y="${24 * u + 4 + i * fs * 1.2}" font-size="${fs}" text-anchor="end" class="hold-brand">${esc(b.length > 32 ? b.slice(0, 31) + '…' : b)}</text>`; });
-    if (br.length > 6) out += `<text x="${z.x1 - 4 * u}" y="${24 * u + 4 + 6 * fs * 1.2}" font-size="${fs}" text-anchor="end" class="hold-brand">+${br.length - 6} more</text>`;
+    const cw = (z.x1 - z.x0) / GC, ch = g.h / GR, W = z.x1 - z.x0, best = {};
+    holdFigures(d, z.h).forEach(f => { const k = f.pod + '|' + (f.pol || ''); if (!best[k] || f.area > best[k].area) best[k] = f; });
+    Object.entries(best).forEach(([k, f]) => {
+      const [pod, pol] = k.split('|');
+      const br = [...new Set(o.entries.filter(e => e.pod === pod && (e.pol || '') === pol).map(e => (e.brand || '').trim()).filter(Boolean))]; if (!br.length) return;
+      let x1, y0;
+      if (f.cells) { x1 = z.x0 + (Math.max(...f.cells.map(i => i % GC)) + 1) * cw; y0 = Math.min(...f.cells.map(i => Math.floor(i / GC))) * ch; }
+      else { x1 = z.x0 + Math.max(...f.shape.pts.map(p => p[0])) * W; y0 = Math.min(...f.shape.pts.map(p => p[1])) * g.h; }
+      const fs = 9 * u, top = Math.max(y0, 22 * u) + fs + 2 * u;
+      br.slice(0, 4).forEach((b, i) => { out += `<text x="${x1 - 3 * u}" y="${top + i * fs * 1.2}" font-size="${fs}" text-anchor="end" class="hold-brand">${esc(b.length > 28 ? b.slice(0, 27) + '…' : b)}</text>`; });
+      if (br.length > 4) out += `<text x="${x1 - 3 * u}" y="${top + 4 * fs * 1.2}" font-size="${fs}" text-anchor="end" class="hold-brand">+${br.length - 4} more</text>`;
+    });
   });
   return out;
 }
