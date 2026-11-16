@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 38;
+const APP_VERSION = 39;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -155,6 +155,13 @@ function newShip(name) {
   const w = name.trim().toUpperCase().split(/\s+/);
   return { id: uid(), name, short: (w[0] || 'SHIP').slice(0, 3) + (w[1] ? w[1][0] : ''), voyage: '', depDate: '', ports: [], activePol: null, holds: {}, deck5: { shapes: [], v2: true }, email: 'vppetrov88@gmail.com' };
 }
+// Weight is entered as the TOTAL weight of the units (MT). Weight per unit = total / units.
+const perUnit = o => { const u = Math.max(num(o.units), 1); return num(o.mt) / u; };
+const r2 = v => String(Math.round(v * 100) / 100);
+function migrateWeights(s) {
+  for (const k in s.holds) (s.holds[k].entries || []).forEach(e => { if (e.wt != null && e.wt !== '' && (e.mt == null || e.mt === '')) e.mt = r2(num(e.wt) * Math.max(num(e.units), 1)); delete e.wt; });
+  (s.deck5.shapes || []).forEach(q => { if ((q.type === 'rect' || q.type === 'free') && q.wt != null && q.wt !== '') { if (q.mt == null || q.mt === '') q.mt = r2(num(q.wt) * Math.max(num(q.units), 1)); delete q.wt; } });
+}
 function fixShip(s) {
   s.holds ||= {}; s.deck5 ||= { shapes: [] }; s.ports ||= []; s.email ||= 'vppetrov88@gmail.com';
   for (const k in s.holds) { const o = s.holds[k]; if (o.cells && o.cells.length === 128) { o.cells = upGrid(o.cells); if (o.pols) o.pols = upGrid(o.pols); } const [dd, hh] = k.split('-').map(Number); if (o.cells && dd !== 5) o.cells.forEach((c, i) => { if (c && !cellHull(dd, hh, i)) { o.cells[i] = null; if (o.pols) o.pols[i] = null; } }); }
@@ -168,6 +175,7 @@ function fixShip(s) {
     });
     s.deck5.v2 = true;
   }
+  migrateWeights(s);
 }
 function seedShip() {
   const s = newShip('Dover Highway'); s.short = 'DOVH'; s.voyage = '132A'; s.depDate = '2026-11-04';
@@ -737,9 +745,9 @@ function entriesHtml(ho) {
     <select data-ebind="pol" aria-label="POL"><option value="">POL</option>${portOpts(loadPorts(), e.pol)}</select>
     <input data-ebind="units" inputmode="numeric" placeholder="Units" value="${esc(e.units)}" aria-label="Units">
     <input data-ebind="brand" placeholder="Brand / model" value="${esc(e.brand)}" aria-label="Brand" list="brandList">
-    <input data-ebind="wt" inputmode="decimal" placeholder="t/unit" value="${esc(e.wt || '')}" aria-label="Weight per unit in tonnes">
+    <input data-ebind="mt" inputmode="decimal" placeholder="Total MT" value="${esc(e.mt || '')}" aria-label="Total weight of these units in tonnes">
     <button class="ic danger" data-act="delEntry" data-id="${e.id}" aria-label="Remove">${I.bin}</button>
-    <div class="lash-slot">${lashHintHtml(e.wt, e.units)}</div>
+    <div class="lash-slot">${lashHintHtml(perUnit(e), e.units)}</div>
   </div>`).join('') + `<datalist id="brandList">${brandOptions(ship().activePol).map(o => `<option value="${esc(o)}">`).join('')}</datalist>`;
 }
 function refreshHoldMeta() {
@@ -1415,7 +1423,7 @@ function sheetBody(s) {
   if (s.type !== 'mafi') return top + `
     <label class="fld"><span>Units</span><input data-sb="units" inputmode="numeric" value="${esc(s.units)}"></label>
     <label class="fld"><span>Model and maker</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. 1 Ut FUSO TRUCK" list="brandList5"></label>
-    <label class="fld"><span>Weight per unit (t)</span><input data-sb="wt" inputmode="decimal" value="${esc(s.wt || '')}"></label><div class="lash-slot">${lashHintHtml(s.wt, s.units)}</div>
+    <label class="fld"><span>Total weight of the units (MT)</span><input data-sb="mt" inputmode="decimal" value="${esc(s.mt || '')}"></label><div class="lash-slot">${lashHintHtml(perUnit(s), s.units)}</div>
     <datalist id="brandList5">${brandOptions(ship().activePol).map(o => `<option value="${esc(o)}">`).join('')}</datalist>`;
   return top + s.mafis.map((m, i) => `<div class="mcard">
       <div class="mcard-h"><b>MAFI ${i + 1} of ${s.mafis.length}</b>${s.mafis.length > 1 ? `<button class="ic danger" data-sa="rmMafi" data-i="${i}" aria-label="Remove MAFI">${I.bin}</button>` : ''}</div>
@@ -1439,8 +1447,11 @@ function openSheet(s) {
     const t = e.target;
     if (t.dataset.sb) {
       s[t.dataset.sb] = t.value;
-      if (t.dataset.sb === 'label' && s.type !== 'pkg') { const w = bookingWeight(t.value, s.pol); if (w != null) { s.wt = String(Math.round(w * 100) / 100); const wi = $('[data-sb="wt"]', ov); if (wi) wi.value = s.wt; } }
-      const sl = $('.lash-slot', ov); if (sl && ['wt', 'units', 'pkgs', 'label'].includes(t.dataset.sb)) sl.innerHTML = lashHintHtml(s.wt, s.type === 'pkg' ? s.pkgs : s.units);
+      const isU = s.type === 'rect' || s.type === 'free';
+      if (isU && t.dataset.sb === 'mt') s.mta = false;
+      if (isU && t.dataset.sb === 'label') { const w = bookingWeight(t.value, s.pol); if (w != null) { s.bw = w; s.mta = true; } }
+      if (isU && (t.dataset.sb === 'label' || t.dataset.sb === 'units') && s.mta && s.bw && num(s.units) > 0) { s.mt = r2(s.bw * num(s.units)); const wi = $('[data-sb="mt"]', ov); if (wi) wi.value = s.mt; }
+      const sl = $('.lash-slot', ov); if (sl && ['wt', 'mt', 'units', 'pkgs', 'label'].includes(t.dataset.sb)) sl.innerHTML = s.type === 'pkg' ? lashHintHtml(s.wt, s.pkgs) : lashHintHtml(perUnit(s), s.units);
     }
     if (t.dataset.mb) { s.mafis[+t.dataset.i][t.dataset.mb] = t.value; }
     drawD5(); save();
@@ -1780,8 +1791,11 @@ document.addEventListener('input', e => {
     en[f] = t.value; save();
     if ((f === 'pod' || f === 'pol') && old && old !== t.value) recolorEntry(ho, en, f, old);
     if (f === 'pod') $('.dot', t.closest('.entry')).style.background = colorOf(t.value);
-    if (f === 'brand') { const w = bookingWeight(t.value, en.pol); if (w != null) { en.wt = String(Math.round(w * 100) / 100); const wi = $('[data-ebind="wt"]', t.closest('.entry')); if (wi) wi.value = en.wt; save(); } }
-    if (f === 'brand' || f === 'wt' || f === 'units') { const sl = $('.lash-slot', t.closest('.entry')); if (sl) sl.innerHTML = lashHintHtml(en.wt, en.units); }
+    // model picked from the booking list: total = booked weight per unit x units (kept in step with the units until typed by hand)
+    if (f === 'mt') en.mta = false;
+    if (f === 'brand') { const w = bookingWeight(t.value, en.pol); if (w != null) { en.bw = w; en.mta = true; } }
+    if ((f === 'brand' || f === 'units') && en.mta && en.bw && num(en.units) > 0) { en.mt = r2(en.bw * num(en.units)); const wi = $('[data-ebind="mt"]', t.closest('.entry')); if (wi) wi.value = en.mt; save(); }
+    if (f === 'brand' || f === 'mt' || f === 'units') { const sl = $('.lash-slot', t.closest('.entry')); if (sl) sl.innerHTML = lashHintHtml(perUnit(en), en.units); }
     refreshHoldMeta();
   }
 });

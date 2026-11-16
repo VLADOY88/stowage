@@ -294,7 +294,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 @media (orientation: landscape) and (max-height: 500px) { #dkPolyBar { min-height: 0; flex: 1 1 100%; } }
 /* Unit line: weight + lashing hint */
 .entry { grid-template-columns: 16px 58px minmax(0, 1fr) minmax(0, 1fr) 58px 44px; grid-template-areas: "d pod pod pol pol x" "u u b b w w" "l l l l l l"; }
-.entry [data-ebind="wt"] { grid-area: w; } .entry [data-ebind="units"] { grid-area: u; } .entry [data-ebind="brand"] { grid-area: b; }
+.entry [data-ebind="mt"] { grid-area: w; } .entry [data-ebind="units"] { grid-area: u; } .entry [data-ebind="brand"] { grid-area: b; }
 .entry .lash-slot { grid-area: l; }
 .entry .lash-slot:empty { display: none; }
 .lash-hint { font-size: 13px; line-height: 1.35; padding: 6px 8px; border-radius: 8px; background: var(--warn-bg); margin-top: 2px; }

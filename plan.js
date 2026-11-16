@@ -49,9 +49,9 @@ function heavyLoaded(sh = ship()) {
   const out = [];
   for (const k in sh.holds) {
     const [d, h] = k.split('-').map(Number);
-    sh.holds[k].entries.forEach(e => { if (num(e.wt) >= 5) out.push({ deck: d, hold: h, pod: e.pod, pol: e.pol, model: e.brand || '', units: num(e.units), wt: num(e.wt) }); });
+    sh.holds[k].entries.forEach(e => { if (perUnit(e) >= 5) out.push({ deck: d, hold: h, pod: e.pod, pol: e.pol, model: e.brand || '', units: num(e.units), wt: perUnit(e) }); });
   }
-  sh.deck5.shapes.forEach(s => { if ((s.type === 'rect' || s.type === 'free' || s.type === 'pkg') && num(s.wt) >= 5) out.push({ deck: 5, hold: shapeHold(s), pod: s.pod, pol: s.pol, model: s.label || (s.type === 'pkg' ? 'Package' : ''), units: s.type === 'pkg' ? num(s.pkgs) : num(s.units), wt: num(s.wt) }); });
+  sh.deck5.shapes.forEach(s => { if (!(s.type === 'rect' || s.type === 'free' || s.type === 'pkg')) return; const w = s.type === 'pkg' ? num(s.wt) : perUnit(s); if (w >= 5) out.push({ deck: 5, hold: shapeHold(s), pod: s.pod, pol: s.pol, model: s.label || (s.type === 'pkg' ? 'Package' : ''), units: s.type === 'pkg' ? num(s.pkgs) : num(s.units), wt: w }); });
   return out.map(r => ({ ...r, pick: lashPick(r.wt, sh.lashPref) }));
 }
 
@@ -300,7 +300,7 @@ function tabPlanHtml() {
   const heavyLoadedHtml = `<div class="card"><h2 class="ch">Loaded units ≥ 5 MT</h2>
     ${hv.length ? `<div class="tblwrap"><table class="tbl wrap"><thead><tr><th>Deck/Hold</th><th>POD/POL</th><th>Model</th><th>Units</th><th>t</th><th>Lashing per unit</th><th>Total</th></tr></thead><tbody>
     ${hv.map(r => `<tr><td>DK${r.deck} H${r.hold}</td><td><i class="dot" style="background:${colorOf(r.pod)}"></i>${esc(code(r.pod))}/${esc(code(r.pol))}</td><td>${esc(r.model || '–')}</td><td>${fmt(r.units)}</td><td>${fmt(r.wt, 1)}</td><td>${r.pick.n}× ${esc(r.pick.sh)}</td><td><b>${r.pick.n * r.units}</b></td></tr>`).join('')}
-    </tbody></table></div><p><b>Totals:</b> ${LASH.filter(t => tot[t.k]).map(t => `${tot[t.k]}× ${t.name}`).join(', ')}</p>` : '<p class="muted">Enter the weight per unit (t) in a unit line, or pick a model from the booking list, and units of 5 t or more appear here with their lashing.</p>'}</div>`;
+    </tbody></table></div><p><b>Totals:</b> ${LASH.filter(t => tot[t.k]).map(t => `${tot[t.k]}× ${t.name}`).join(', ')}</p>` : '<p class="muted">Enter the total weight (MT) in a unit line, or pick a model from the booking list. Units of 5 t or more each appear here with their lashing.</p>'}</div>`;
   let bookedHeavy = '';
   if (b) {
     const why = r => [r.kg >= 5000 ? '≥5 t' : '', r.st ? 'PKG' : '', r.hgt > 210 ? '>2.1 m' : ''].filter(Boolean);
