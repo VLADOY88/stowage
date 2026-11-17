@@ -149,7 +149,7 @@ const SVG_STYLE = `<style>.fig-lbl{font-weight:800;fill:#0e2036;paint-order:stro
 function holdSummary(d, h) {
   const sh = ship(), m = {};
   const add = (pod, pol, u, p, t) => { const k = `${code(pod)}/${pol ? code(pol) : '?'}`; const a = (m[k] ||= { u: 0, p: 0, t: 0 }); a.u += u; a.p += p; a.t += t; };
-  if (d === 5) sh.deck5.shapes.filter(s => s.type !== 'ev' && shapeHold(s) === h).forEach(s => { if (s.type === 'mafi') { const t = mafiTotals(s); add(s.pod, s.pol, 0, t.pkgs, t.mt); } else if (s.type === 'pkg') add(s.pod, s.pol, 0, num(s.pkgs), num(s.mt) || num(s.wt) * num(s.pkgs)); else add(s.pod, s.pol, num(s.units), 0, num(s.mt)); });
+  if (d === 5) sh.deck5.shapes.filter(s => s.type !== 'ev' && shapeHold(s) === h).forEach(s => { if (s.type === 'mafi') { const t = mafiTotals(s); add(s.pod, s.pol, 0, t.pkgs, t.mt); } else if (s.type === 'pkg') add(s.pod, s.pol, 0, num(s.pkgs), num(s.mt) || num(s.wt) * num(s.pkgs)); else add(s.pod, s.pol, num(s.units), num(s.pkgs), num(s.mt)); });
   else { const o = sh.holds[d + '-' + h]; if (o) o.entries.forEach(e => add(e.pod, e.pol, num(e.units), 0, num(e.mt))); }
   return Object.entries(m).filter(([, a]) => a.u || a.p).map(([k, a]) => `${k}  ${a.u ? fmt(a.u) + ' Uts' : ''}${a.p ? (a.u ? ', ' : '') + fmt(a.p) + ' PKGs' : ''}${a.t ? '  ' + fmt(a.t, 1) + ' MT' : ''}`);
 }

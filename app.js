@@ -4,7 +4,7 @@
    ========================================================= */
 
 /* ---------- Constants ---------- */
-const APP_VERSION = 40;
+const APP_VERSION = 41;
 const DECKS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const GC = 32, GR = 16;                // hold paint grid (fore-aft x athwartships)
 // Deck pictures (pixels) and the x positions of the hold lines, aft (left) to bow (right)
@@ -239,7 +239,7 @@ function cargoRows(sh = ship()) {
     const hold = shapeHold(s);
     if (s.type === 'pkg') { rows.push({ deck: 5, hold, pod: s.pod, pol: s.pol, units: 0, pkgs: num(s.pkgs), mafis: 0, mt: num(s.mt), brand: 'Package' + (s.label ? ': ' + s.label : '') }); continue; }
     if (s.type === 'mafi') { const t = mafiTotals(s); rows.push({ deck: 5, hold, pod: s.pod, pol: s.pol, units: 0, pkgs: t.pkgs, mafis: s.mafis.length, mt: t.mt, brand: s.mafis.length > 1 ? 'MAFI stack' : 'MAFI' }); }
-    else rows.push({ deck: 5, hold, pod: s.pod, pol: s.pol, units: num(s.units), pkgs: 0, mafis: 0, mt: 0, brand: s.label || '' });
+    else rows.push({ deck: 5, hold, pod: s.pod, pol: s.pol, units: num(s.units), pkgs: num(s.pkgs), mafis: 0, mt: num(s.pkgs) ? num(s.mt) : 0, brand: s.label || '' });
   }
   return rows;
 }
@@ -1186,7 +1186,7 @@ function labelLines(s) {
     return l;
   }
   if (s.type === 'pkg') { const l = [pp, `${fmt(num(s.pkgs))} PKG${num(s.pkgs) === 1 ? '' : 's'}`]; if (num(s.mt)) l.push(fmt(num(s.mt), 1) + ' MT'); if (s.label) l.push(s.label); return l; }
-  const l = [pp]; if (num(s.units)) l.push(fmt(num(s.units)) + ' Uts'); if (s.label) l.push(s.label);
+  const l = [pp]; if (num(s.units)) l.push(fmt(num(s.units)) + ' Uts'); if (num(s.pkgs)) l.push(fmt(num(s.pkgs)) + ' PKGs'); if (s.label) l.push(s.label);
   return l;
 }
 function wrapLines(lines, w, fs) {
@@ -1421,9 +1421,10 @@ function sheetBody(s) {
     <label class="fld"><span>Description</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. Transformer, boat, crate"></label>
     <label class="fld"><span>Weight per package (t)</span><input data-sb="wt" inputmode="decimal" value="${esc(s.wt || '')}"></label><div class="lash-slot">${lashHintHtml(s.wt, s.pkgs)}</div>`;
   if (s.type !== 'mafi') return top + `
-    <label class="fld"><span>Units</span><input data-sb="units" inputmode="numeric" value="${esc(s.units)}"></label>
+    <div class="grid2"><label class="fld"><span>Units</span><input data-sb="units" inputmode="numeric" value="${esc(s.units)}"></label>
+    <label class="fld"><span>Packages (PKGs)</span><input data-sb="pkgs" inputmode="numeric" value="${esc(s.pkgs || '')}"></label></div>
     <label class="fld"><span>Model and maker</span><input data-sb="label" value="${esc(s.label)}" placeholder="e.g. 1 Ut FUSO TRUCK" list="brandList5"></label>
-    <label class="fld"><span>Total weight of the units (MT)</span><input data-sb="mt" inputmode="decimal" value="${esc(s.mt || '')}"></label><div class="lash-slot">${lashHintHtml(perUnit(s), s.units)}</div>
+    <label class="fld"><span>Total weight (MT)</span><input data-sb="mt" inputmode="decimal" value="${esc(s.mt || '')}"></label><div class="lash-slot">${num(s.units) ? lashHintHtml(perUnit(s), s.units) : ''}</div>
     <datalist id="brandList5">${brandOptions(ship().activePol).map(o => `<option value="${esc(o)}">`).join('')}</datalist>`;
   return top + s.mafis.map((m, i) => `<div class="mcard">
       <div class="mcard-h"><b>MAFI ${i + 1} of ${s.mafis.length}</b>${s.mafis.length > 1 ? `<button class="ic danger" data-sa="rmMafi" data-i="${i}" aria-label="Remove MAFI">${I.bin}</button>` : ''}</div>
@@ -1451,7 +1452,7 @@ function openSheet(s) {
       if (isU && t.dataset.sb === 'mt') s.mta = false;
       if (isU && t.dataset.sb === 'label') { const w = bookingWeight(t.value, s.pol); if (w != null) { s.bw = w; s.mta = true; } }
       if (isU && (t.dataset.sb === 'label' || t.dataset.sb === 'units') && s.mta && s.bw && num(s.units) > 0) { s.mt = r2(s.bw * num(s.units)); const wi = $('[data-sb="mt"]', ov); if (wi) wi.value = s.mt; }
-      const sl = $('.lash-slot', ov); if (sl && ['wt', 'mt', 'units', 'pkgs', 'label'].includes(t.dataset.sb)) sl.innerHTML = s.type === 'pkg' ? lashHintHtml(s.wt, s.pkgs) : lashHintHtml(perUnit(s), s.units);
+      const sl = $('.lash-slot', ov); if (sl && ['wt', 'mt', 'units', 'pkgs', 'label'].includes(t.dataset.sb)) sl.innerHTML = s.type === 'pkg' ? lashHintHtml(s.wt, s.pkgs) : num(s.units) ? lashHintHtml(perUnit(s), s.units) : '';
     }
     if (t.dataset.mb) { s.mafis[+t.dataset.i][t.dataset.mb] = t.value; }
     drawD5(); save();
