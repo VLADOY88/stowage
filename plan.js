@@ -178,6 +178,9 @@ async function parsePreplan(file) {
       }));
     }
   }
+  // Stowage summary: every stack with units and weight (for the pre-departure stability report)
+  const sumSheet = W.sheets.find(s => /STOWAGE\s*SUMMARY/i.test(s.name));
+  if (sumSheet) { try { result.summary = parseStowageSummary(await sheetRows(W, sumSheet)); } catch (e) { console.error(e); } }
   // Simulation plan pictures: left block "Loading", right block "Discharging", decks 12 → 1 from top
   const sSheet = W.sheets.find(s => /SIMULATION/i.test(s.name));
   if (sSheet) {
@@ -227,7 +230,7 @@ async function importPreplan(file) {
   const sh = ship();
   toast('Reading ' + file.name + '…', 6000);
   let R; try { R = await parsePreplan(file); } catch (e) { console.error(e); toast('Could not read the file: ' + e.message, 5000); return; }
-  if (!R.booking && !R.pics) { toast('No BOOKING LIST or SIMULATION PLAN found in this file.', 5000); return; }
+  if (!R.booking && !R.pics && !R.summary) { toast('No BOOKING LIST or SIMULATION PLAN found in this file.', 5000); return; }
   let M = { map: {}, fill: false };
   if (R.booking && R.booking.length) { M = await mappingDialog(R); if (!M) return; }
   // create new ports where asked
@@ -248,8 +251,12 @@ async function importPreplan(file) {
     try { await dbSet('plan-' + sh.id, PLAN); } catch (e) { toast('Plan pictures could not be stored: ' + e.message); }
     UI.planView = 'load';
   }
+  if (R.summary) {
+    toast('Calculating the pre-departure stability report…', 6000);
+    try { sh.predep = await buildPredep(R.summary, R.pics ? { load: R.pics.load, disch: R.pics.disch, legend: R.legend || {} } : null, R.file); UI.pdfPre = null; } catch (e) { console.error(e); toast('Pre-departure report could not be made: ' + e.message, 5000); }
+  }
   save(); rerender();
-  toast(`Imported${R.booking ? ' ' + R.booking.length + ' booking lines' : ''}${R.pics ? ', plan pictures for ' + Object.keys(R.pics.load).length + ' decks' : ''}.`, 5000);
+  toast(`Imported${R.booking ? ' ' + R.booking.length + ' booking lines' : ''}${R.pics ? ', plan pictures for ' + Object.keys(R.pics.load).length + ' decks' : ''}${sh.predep && R.summary ? ', pre-departure report for ' + sh.predep.deps.join(', ') : ''}.`, 5000);
 }
 
 /* ---------- Booking figures ---------- */

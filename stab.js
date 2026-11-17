@@ -91,7 +91,7 @@ function tabStabHtml() {
   const sh = ship(), rows = stabStacks();
   const T = rows.reduce((a, r) => { a.n += r.n; a.w += r.w; if (r.lcg != null) { a.mx += r.w * r.lcg; a.my += r.w * r.tcg; a.wl += r.w; } if (r.kg != null) { a.mz += r.w * r.kg; a.wk += r.w; } return a; }, { n: 0, w: 0, mx: 0, my: 0, wl: 0, mz: 0, wk: 0 });
   const decks = DECKS.filter(d => rows.some(r => r.d === d));
-  return `<div class="card">
+  return predepHtml() + `<h2 class="sh">Actual stability (cargo loaded in the app)</h2><div class="card">
     <p class="muted">One point per stack (POD/POL) per hold. A full hold with one stack uses the standard loading condition. Otherwise the centre of the painted figures is used. Weight not entered counts as 0 t.</p>
     <button class="btn primary" data-stab="pdf">Export to PDF</button>
     ${UI.pdfStab ? `<div class="pdfready"><p><b>${esc(UI.pdfStab.name)}</b> is ready.</p><button class="btn primary" data-act="sharePdf" data-v="pdfStab">Email PDF</button><button class="btn" data-act="savePdf" data-v="pdfStab">Save to Files</button></div>` : ''}

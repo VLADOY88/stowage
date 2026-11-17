@@ -387,3 +387,5 @@ mark { background: var(--accent); color: var(--accent-ink); border-radius: 3px; 
 .sop-links { position: absolute; inset: 0; }
 .sop-links a { position: absolute; display: block; border-radius: 3px; }
 .sop-links a:active { background: rgba(255, 199, 44, .35); }
+.tbl.predep tr.tot td { font-weight: 800; background: color-mix(in srgb, #92d050 30%, transparent); }
+.tbl.predep td:first-child { white-space: nowrap; }
